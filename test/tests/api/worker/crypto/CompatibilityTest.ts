@@ -2,7 +2,6 @@ import o from "@tutao/otest"
 import {
 	aesDecrypt,
 	aesEncrypt,
-	KeyPairType,
 	bitArrayToUint8Array,
 	bytesToKyberPrivateKey,
 	bytesToKyberPublicKey,
@@ -18,8 +17,10 @@ import {
 	hexToRsaPublicKey,
 	hkdf,
 	KeyLength,
+	KeyPairType,
 	kyberPrivateKeyToBytes,
 	kyberPublicKeyToBytes,
+	LibOQSExports,
 	PQKeyPairs,
 	PQPublicKeys,
 	random,
@@ -30,6 +31,8 @@ import {
 } from "@tutao/tutanota-crypto"
 import {
 	base64ToUint8Array,
+	byteArraysToBytes,
+	bytesToByteArrays,
 	hexToUint8Array,
 	neverNull,
 	stringToUtf8Uint8Array,
@@ -38,12 +41,10 @@ import {
 	utf8Uint8ArrayToString,
 } from "@tutao/tutanota-utils"
 import testData from "./CompatibilityTestData.json"
-import { uncompress } from "../../../../../src/api/worker/Compression.js"
+import { uncompress } from "../../../../../src/common/api/worker/Compression.js"
 import { matchers, object, when } from "testdouble"
-import { byteArraysToBytes, bytesToByteArrays } from "@tutao/tutanota-utils/dist/Encoding.js"
-import { PQFacade } from "../../../../../src/api/worker/facades/PQFacade.js"
-import { WASMKyberFacade } from "../../../../../src/api/worker/facades/KyberFacade.js"
-import { decodePQMessage } from "../../../../../src/api/worker/facades/PQMessage.js"
+import { PQFacade } from "../../../../../src/common/api/worker/facades/PQFacade.js"
+import { WASMKyberFacade } from "../../../../../src/common/api/worker/facades/KyberFacade.js"
 import { loadArgon2WASM, loadLibOQSWASM } from "../WASMTestUtils.js"
 
 const originalRandom = random.generateRandomData
@@ -87,6 +88,26 @@ o.spec("crypto compatibility", function () {
 			o(decapsulatedSharedSecret).deepEquals(hexToUint8Array(td.sharedSecret))
 		}
 	})
+	o("kyber - fallback", async () => {
+		for (const td of testData.kyberEncryptionTests) {
+			const publicKey = bytesToKyberPublicKey(hexToUint8Array(td.publicKey))
+			const privateKey = bytesToKyberPrivateKey(hexToUint8Array(td.privateKey))
+			o(uint8ArrayToHex(kyberPublicKeyToBytes(publicKey))).deepEquals(td.publicKey)
+			o(uint8ArrayToHex(kyberPrivateKeyToBytes(privateKey))).deepEquals(td.privateKey)
+
+			const seed = hexToUint8Array(td.seed)
+
+			const randomizer = object<Randomizer>()
+			when(randomizer.generateRandomData(matchers.anything())).thenReturn(seed)
+			const liboqsFallback = (await (await import("liboqs.wasm")).loadWasm({ forceFallback: true })) as LibOQSExports
+			const encapsulation = encapsulateKyber(liboqsFallback, publicKey, randomizer)
+			o(encapsulation.sharedSecret).deepEquals(hexToUint8Array(td.sharedSecret))
+			o(encapsulation.ciphertext).deepEquals(hexToUint8Array(td.cipherText))
+
+			const decapsulatedSharedSecret = decapsulateKyber(liboqsFallback, privateKey, hexToUint8Array(td.cipherText))
+			o(decapsulatedSharedSecret).deepEquals(hexToUint8Array(td.sharedSecret))
+		}
+	})
 	o("aes 256", function () {
 		for (const td of testData.aes256Tests) {
 			let key = uint8ArrayToBitArray(hexToUint8Array(td.hexKey))
@@ -112,19 +133,19 @@ o.spec("crypto compatibility", function () {
 
 	/*
   o("aes 256 webcrypto", browser(function (done, timeout) {
-	  timeout(2000)
-	  Promise.all(
-		  compatibilityTestData.aes256Tests.map(td => {
-			  let key = uint8ArrayToBitArray(hexToUint8Array(td.hexKey))
-			  return aes256EncryptFile(key, base64ToUint8Array(td.plainTextBase64), base64ToUint8Array(td.ivBase64), true).then(encryptedBytes => {
-				  o(uint8ArrayToBase64(encryptedBytes)).deepEquals(td.cipherTextBase64)
-					  return aes256Decrypt(key, encryptedBytes)
-			  }).then(decryptedBytes => {
-				  let decrypted = uint8ArrayToBase64(decryptedBytes)
-				  o(decrypted).deepEquals(td.plainTextBase64)
-			  })
-		  })
-	  ).then(() => done())
+      timeout(2000)
+      Promise.all(
+          compatibilityTestData.aes256Tests.map(td => {
+              let key = uint8ArrayToBitArray(hexToUint8Array(td.hexKey))
+              return aes256EncryptFile(key, base64ToUint8Array(td.plainTextBase64), base64ToUint8Array(td.ivBase64), true).then(encryptedBytes => {
+                  o(uint8ArrayToBase64(encryptedBytes)).deepEquals(td.cipherTextBase64)
+                      return aes256Decrypt(key, encryptedBytes)
+              }).then(decryptedBytes => {
+                  let decrypted = uint8ArrayToBase64(decryptedBytes)
+                  o(decrypted).deepEquals(td.plainTextBase64)
+              })
+          })
+      ).then(() => done())
   }))
   */
 
@@ -191,7 +212,14 @@ o.spec("crypto compatibility", function () {
 	o("argon2id", async function () {
 		const argon2 = await loadArgon2WASM()
 		for (let td of testData.argon2idTests) {
-			let key = generateKeyFromPassphraseArgon2id(argon2, td.password, hexToUint8Array(td.saltHex))
+			let key = await generateKeyFromPassphraseArgon2id(argon2, td.password, hexToUint8Array(td.saltHex))
+			o(uint8ArrayToHex(bitArrayToUint8Array(key))).equals(td.keyHex)
+		}
+	})
+	o("argon2id - fallback", async function () {
+		const argon2 = await (await import("argon2.wasm")).loadWasm({ forceFallback: true })
+		for (let td of testData.argon2idTests) {
+			let key = await generateKeyFromPassphraseArgon2id(argon2, td.password, hexToUint8Array(td.saltHex))
 			o(uint8ArrayToHex(bitArrayToUint8Array(key))).equals(td.keyHex)
 		}
 	})
@@ -281,11 +309,51 @@ o.spec("crypto compatibility", function () {
 			const pqKeyPairs: PQKeyPairs = { keyPairType: KeyPairType.TUTA_CRYPT, eccKeyPair, kyberKeyPair }
 			const pqFacade = new PQFacade(new WASMKyberFacade(liboqs))
 
-			const encapsulation = await pqFacade.encapsulate(eccKeyPair, ephemeralKeyPair, pqPublicKeys, bucketKey)
-			o(encapsulation).deepEquals(decodePQMessage(hexToUint8Array(td.pqMessage)))
+			const encapsulation = await pqFacade.encapsulateAndEncode(eccKeyPair, ephemeralKeyPair, pqPublicKeys, bucketKey)
+			o(encapsulation).deepEquals(hexToUint8Array(td.pqMessage))
 
-			const decapsulation = await pqFacade.decapsulate(encapsulation, pqKeyPairs)
-			o(decapsulation).deepEquals(bucketKey)
+			const decapsulation = await pqFacade.decapsulateEncoded(encapsulation, pqKeyPairs)
+			o(decapsulation.decryptedSymKeyBytes).deepEquals(bucketKey)
+			o(decapsulation.senderIdentityPubKey).deepEquals(eccKeyPair.publicKey)
+		}
+	})
+
+	o("pqcrypt - kyber fallback", async function () {
+		for (const td of testData.pqcryptEncryptionTests) {
+			random.generateRandomData = (number) => hexToUint8Array(td.seed).slice(0, number)
+
+			const bucketKey = hexToUint8Array(td.bucketKey)
+
+			const eccKeyPair = {
+				publicKey: hexToUint8Array(td.publicX25519Key),
+				privateKey: hexToUint8Array(td.privateX25519Key),
+			}
+
+			const ephemeralKeyPair = {
+				publicKey: hexToUint8Array(td.epheremalPublicX25519Key),
+				privateKey: hexToUint8Array(td.epheremalPrivateX25519Key),
+			}
+
+			const kyberKeyPair = {
+				publicKey: bytesToKyberPublicKey(hexToUint8Array(td.publicKyberKey)),
+				privateKey: bytesToKyberPrivateKey(hexToUint8Array(td.privateKyberKey)),
+			}
+
+			const pqPublicKeys: PQPublicKeys = {
+				keyPairType: KeyPairType.TUTA_CRYPT,
+				eccPublicKey: eccKeyPair.publicKey,
+				kyberPublicKey: kyberKeyPair.publicKey,
+			}
+			const pqKeyPairs: PQKeyPairs = { keyPairType: KeyPairType.TUTA_CRYPT, eccKeyPair, kyberKeyPair }
+			const liboqsFallback = (await (await import("liboqs.wasm")).loadWasm({ forceFallback: true })) as LibOQSExports
+			const pqFacade = new PQFacade(new WASMKyberFacade(liboqsFallback))
+
+			const encapsulation = await pqFacade.encapsulateAndEncode(eccKeyPair, ephemeralKeyPair, pqPublicKeys, bucketKey)
+			o(encapsulation).deepEquals(hexToUint8Array(td.pqMessage))
+
+			const decapsulation = await pqFacade.decapsulateEncoded(encapsulation, pqKeyPairs)
+			o(decapsulation.decryptedSymKeyBytes).deepEquals(bucketKey)
+			o(decapsulation.senderIdentityPubKey).deepEquals(eccKeyPair.publicKey)
 		}
 	})
 
@@ -295,10 +363,14 @@ o.spec("crypto compatibility", function () {
 	 */
 	// o("createCompressionTestData", function () {
 	// 	console.log("List<String> javaScriptCompressed = List.of(")
-	// 	console.log(compatibilityTestData.compressionTests.map(td => {
-	// 		let compressed = uint8ArrayToBase64(compress(stringToUtf8Uint8Array(td.uncompressedText)))
-	// 		return "\t\t\"" + compressed + "\""
-	// 	}).join(",\n"))
+	// 	console.log(
+	// 		testData.compressionTests
+	// 			.map((td) => {
+	// 				let compressed = uint8ArrayToBase64(compress(stringToUtf8Uint8Array(td.uncompressedText)))
+	// 				return '\t\t"' + compressed + '"'
+	// 			})
+	// 			.join(",\n"),
+	// 	)
 	// 	console.log(");")
 	// })
 })

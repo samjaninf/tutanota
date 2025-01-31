@@ -1,5 +1,5 @@
-import { AccountType, ContactAddressType, FeatureType, GroupType, ShareCapability, TimeFormat } from "../../../src/api/common/TutanotaConstants.js"
-import type { UserController } from "../../../src/api/main/UserController.js"
+import { AccountType, ContactAddressType, FeatureType, GroupType, ShareCapability, TimeFormat } from "../../../src/common/api/common/TutanotaConstants.js"
+import type { UserController } from "../../../src/common/api/main/UserController.js"
 import {
 	BookingsRefTypeRef,
 	CustomerInfoTypeRef,
@@ -13,11 +13,11 @@ import {
 	PlanConfigurationTypeRef,
 	User,
 	UserTypeRef,
-} from "../../../src/api/entities/sys/TypeRefs.js"
-import { GENERATED_MAX_ID } from "../../../src/api/common/utils/EntityUtils.js"
+} from "../../../src/common/api/entities/sys/TypeRefs.js"
+import { GENERATED_MAX_ID } from "../../../src/common/api/common/utils/EntityUtils.js"
 import { downcast, LazyLoaded } from "@tutao/tutanota-utils"
-import type { CalendarEvent } from "../../../src/api/entities/tutanota/TypeRefs.js"
 import {
+	CalendarEvent,
 	CalendarEventTypeRef,
 	CalendarGroupRootTypeRef,
 	ContactAddressTypeRef,
@@ -27,15 +27,16 @@ import {
 	MailboxGroupRootTypeRef,
 	MailBoxTypeRef,
 	TutanotaPropertiesTypeRef,
-} from "../../../src/api/entities/tutanota/TypeRefs.js"
-import type { MailboxDetail } from "../../../src/mail/model/MailModel.js"
-import type { CalendarInfo } from "../../../src/calendar/model/CalendarModel"
-import { FolderSystem } from "../../../src/api/common/mail/FolderSystem.js"
-import { Recipient, RecipientType } from "../../../src/api/common/recipients/Recipient.js"
+	UserSettingsGroupRoot,
+} from "../../../src/common/api/entities/tutanota/TypeRefs.js"
+import type { CalendarInfo } from "../../../src/calendar-app/calendar/model/CalendarModel"
+import { Recipient, RecipientType } from "../../../src/common/api/common/recipients/Recipient.js"
 import { DateTime } from "luxon"
 import { createTestEntity } from "../TestUtils.js"
-import { AlarmScheduler } from "../../../src/calendar/date/AlarmScheduler.js"
 import { matchers, object, when } from "testdouble"
+import { MailboxDetail } from "../../../src/common/mailFunctionality/MailboxModel.js"
+import { AlarmScheduler } from "../../../src/common/calendar/date/AlarmScheduler.js"
+import { FolderSystem } from "../../../src/common/api/common/mail/FolderSystem.js"
 
 export const ownerMailAddress = "calendarowner@tutanota.de" as const
 export const ownerId = "ownerId" as const
@@ -123,6 +124,7 @@ export const calendars: ReadonlyMap<Id, CalendarInfo> = new Map([
 		{
 			groupRoot: createTestEntity(CalendarGroupRootTypeRef, {}),
 			shared: false,
+			userIsOwner: true,
 			longEvents: new LazyLoaded(() => Promise.resolve([])),
 			groupInfo: createTestEntity(GroupInfoTypeRef, {}),
 			group: createTestEntity(GroupTypeRef, {
@@ -130,6 +132,39 @@ export const calendars: ReadonlyMap<Id, CalendarInfo> = new Map([
 				user: "ownerId",
 				type: GroupType.Calendar,
 			}),
+			isExternal: false,
+		},
+	],
+	[
+		"ownSharedCalendar",
+		{
+			groupRoot: createTestEntity(CalendarGroupRootTypeRef, {}),
+			shared: true,
+			userIsOwner: true,
+			longEvents: new LazyLoaded(() => Promise.resolve([])),
+			groupInfo: createTestEntity(GroupInfoTypeRef, {}),
+			group: createTestEntity(GroupTypeRef, {
+				_id: "ownSharedCalendar",
+				user: "ownerId",
+				type: GroupType.Calendar,
+			}),
+			isExternal: false,
+		},
+	],
+	[
+		"ownExternalCalendar",
+		{
+			groupRoot: createTestEntity(CalendarGroupRootTypeRef, {}),
+			shared: false,
+			userIsOwner: true,
+			longEvents: new LazyLoaded(() => Promise.resolve([])),
+			groupInfo: createTestEntity(GroupInfoTypeRef, {}),
+			group: createTestEntity(GroupTypeRef, {
+				_id: "ownExternalCalendar",
+				user: "ownerId",
+				type: GroupType.Calendar,
+			}),
+			isExternal: true,
 		},
 	],
 	[
@@ -137,6 +172,7 @@ export const calendars: ReadonlyMap<Id, CalendarInfo> = new Map([
 		{
 			groupRoot: createTestEntity(CalendarGroupRootTypeRef, {}),
 			shared: true,
+			userIsOwner: false,
 			longEvents: new LazyLoaded(() => Promise.resolve([])),
 			groupInfo: createTestEntity(GroupInfoTypeRef, {}),
 			group: createTestEntity(GroupTypeRef, {
@@ -144,6 +180,7 @@ export const calendars: ReadonlyMap<Id, CalendarInfo> = new Map([
 				user: "otherId",
 				type: GroupType.Calendar,
 			}),
+			isExternal: false,
 		},
 	],
 ])
@@ -156,6 +193,8 @@ export function makeUserController(
 	defaultSender?: string,
 	businessFeatureOrdered: boolean = false,
 	isNewPaidPlan: boolean = false,
+	user?: User,
+	userSettingsGroupRoot?: UserSettingsGroupRoot,
 ): UserController {
 	const bookingsRef = createTestEntity(BookingsRefTypeRef, {
 		items: GENERATED_MAX_ID,
@@ -182,6 +221,7 @@ export function makeUserController(
 				}),
 			],
 			accountType,
+			...user,
 		}),
 		props: createTestEntity(TutanotaPropertiesTypeRef, {
 			defaultSender: defaultSender || ownerMailAddress,
@@ -197,6 +237,8 @@ export function makeUserController(
 		}),
 		userSettingsGroupRoot: {
 			timeFormat: TimeFormat.TWENTY_FOUR_HOURS,
+			groupSettings: [],
+			...userSettingsGroupRoot,
 		},
 		isInternalUser: () => true,
 		isFreeAccount: () => true,
@@ -226,19 +268,7 @@ export function makeUserController(
 	})
 }
 
-export function makeMailboxDetail(): MailboxDetail {
-	return {
-		mailbox: createTestEntity(MailBoxTypeRef),
-		folders: new FolderSystem([]),
-		mailGroupInfo: createTestEntity(GroupInfoTypeRef),
-		mailGroup: createTestEntity(GroupTypeRef, {
-			user: ownerId,
-		}),
-		mailboxGroupRoot: createTestEntity(MailboxGroupRootTypeRef),
-	}
-}
-
-export function makeCalendarInfo(type: "own" | "shared", id: string): CalendarInfo {
+export function makeCalendarInfo(type: "own" | "shared" | "external", id: string): CalendarInfo {
 	return {
 		groupRoot: downcast({
 			longEvents: "longEventsList",
@@ -251,12 +281,9 @@ export function makeCalendarInfo(type: "own" | "shared", id: string): CalendarIn
 			user: type === "own" ? ownerId : "anotherUserId",
 		}),
 		shared: type === "shared",
+		userIsOwner: type === "own",
+		isExternal: type === "external",
 	}
-}
-
-export function makeCalendars(type: "own" | "shared", id: string = calendarGroupId): Map<string, CalendarInfo> {
-	const calendarInfo = makeCalendarInfo(type, id)
-	return new Map([[id, calendarInfo]])
 }
 
 function id(element: string): IdTuple {

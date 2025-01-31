@@ -6,9 +6,13 @@ import android.content.res.Configuration.UI_MODE_NIGHT_MASK
 import android.content.res.Configuration.UI_MODE_NIGHT_YES
 import android.graphics.drawable.ColorDrawable
 import android.util.Log
-import android.view.View
 import androidx.annotation.ColorInt
-import de.tutao.tutanota.ipc.ThemeFacade
+import androidx.core.view.WindowInsetsControllerCompat
+import de.tutao.tutashared.getDefaultSharedPreferences
+import de.tutao.tutashared.ipc.ThemeFacade
+import de.tutao.tutashared.isLightHexColor
+import de.tutao.tutashared.parseColor
+import de.tutao.tutashared.toMap
 import org.json.JSONException
 import org.json.JSONObject
 import java.util.*
@@ -18,18 +22,18 @@ typealias ThemeId = String
 typealias ThemePreference = String
 
 class AndroidThemeFacade(
-		private val context: Context,
-		private val activity: MainActivity,
+	private val context: Context,
+	private val activity: MainActivity,
 ) : ThemeFacade {
 	companion object {
 		private const val CURRENT_THEME_KEY = "theme"
 		private const val THEMES_KEY = "themes"
 		private const val TAG = "AndroidThemeFacade"
 		private val LIGHT_FALLBACK_THEME = mapOf(
-				"themeId" to "light-fallback",
-				"content_bg" to "#ffffff",
-				"header_bg" to "#ffffff",
-				"navigation_bg" to "#f6f6f6",
+			"themeId" to "light-fallback",
+			"content_bg" to "#ffffff",
+			"header_bg" to "#ffffff",
+			"navigation_bg" to "#f6f6f6",
 		)
 	}
 
@@ -105,17 +109,16 @@ class AndroidThemeFacade(
 		// It is not an accident that navBg and headerBg seem to be swapped, the original color scheme was reused in
 		// this way.
 
-		val decorView = activity.window.decorView
 		val navBg = getColor(theme, "header_bg")
 
 		@ColorInt val navColor = parseColor(navBg)
 		val isNavBarLight = navBg.isLightHexColor()
-		var visibilityFlags = 0
-		if (atLeastOreo()) {
-			activity.window.navigationBarColor = navColor
-			if (isNavBarLight) {
-				visibilityFlags = visibilityFlags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-			}
+		activity.window.navigationBarColor = navColor
+
+		val windowInsetController = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
+
+		if (isNavBarLight) {
+			windowInsetController.isAppearanceLightNavigationBars = true
 		}
 
 		val headerBg = getColor(theme, "navigation_bg")
@@ -129,15 +132,11 @@ class AndroidThemeFacade(
 		// So for Android M and above we alternate between white and dark status bar colors and
 		// we change lightStatusBar flag accordingly.
 		activity.window.statusBarColor = statusBarColor
-		if (isStatusBarLight) {
-			visibilityFlags = visibilityFlags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-		}
-
-		decorView.systemUiVisibility = visibilityFlags
+		windowInsetController.isAppearanceLightStatusBars = isStatusBarLight
 	}
 
 	private fun getColor(theme: Map<String, String>, key: String): String =
-			theme[key] ?: LIGHT_FALLBACK_THEME[key] ?: "#FFFFFF"
+		theme[key] ?: LIGHT_FALLBACK_THEME[key] ?: "#FFFFFF"
 
 	override suspend fun getThemes(): List<Map<String, String>> {
 		return this.themes

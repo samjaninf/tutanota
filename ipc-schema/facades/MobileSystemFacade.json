@@ -5,51 +5,6 @@
 	"receivers": ["ios", "android"],
 	"doc": "Common operations implemented by each mobile platform.",
 	"methods": {
-		"findSuggestions": {
-			"doc": "Find suggestions in the OS contact provider.",
-			"arg": [
-				{
-					"query": "string"
-				}
-			],
-			"ret": "List<NativeContact>"
-		},
-		"saveContacts": {
-			"doc": "Store one or more contacts in system's contact book",
-			"arg": [
-				{
-					"username": "string"
-				},
-				{
-					"contacts": "List<StructuredContact>"
-				}
-			],
-			"ret": "void"
-		},
-		"syncContacts": {
-			"doc": "Sync all Tuta contacts with system's contact book, this operation includes Inserts, Updates and Deletions",
-			"arg": [
-				{
-					"username": "string"
-				},
-				{
-					"contacts": "List<StructuredContact>"
-				}
-			],
-			"ret": "void"
-		},
-		"deleteContacts": {
-			"doc": "Delete all or a specific Tuta contact from system's contact book",
-			"arg": [
-				{
-					"username": "string"
-				},
-				{
-					"contactId": "string?"
-				}
-			],
-			"ret": "void"
-		},
 		"goToSettings": {
 			"doc": "Redirect the user to Phone's Settings",
 			"arg": [],
@@ -75,6 +30,74 @@
 				}
 			],
 			"ret": "boolean"
+		},
+		"hasPermission": {
+			"doc": "Returns whether the specified system permission has already been granted by the user.",
+			"arg": [
+				{
+					"permission": "PermissionType"
+				}
+			],
+			"ret": "boolean"
+		},
+		"requestPermission": {
+			"doc": "Requests a system permission from the user.",
+			"arg": [
+				{
+					"permission": "PermissionType"
+				}
+			],
+			"ret": "void"
+		},
+		"getAppLockMethod": {
+			"arg": [],
+			"ret": "AppLockMethod"
+		},
+		"setAppLockMethod": {
+			"arg": [
+				{
+					"method": "AppLockMethod"
+				}
+			],
+			"ret": "void"
+		},
+		"enforceAppLock": {
+			"arg": [
+				{
+					"method": "AppLockMethod"
+				}
+			],
+			"ret": "void"
+		},
+		"getSupportedAppLockMethods": {
+			"arg": [],
+			"ret": "List<AppLockMethod>"
+		},
+		"openMailApp": {
+			"arg": [
+				{
+					"query": "string"
+				}
+			],
+			"ret": "void"
+		},
+		"openCalendarApp": {
+			"arg": [
+				{
+					"query": "string"
+				}
+			],
+			"ret": "void"
+		},
+		"getInstallationDate": {
+			"doc": "Returns the date and time the app was installed as a string with milliseconds in UNIX epoch.",
+			"arg": [],
+			"ret": "string"
+		},
+		"requestInAppRating": {
+			"doc": "Requests the system in-app rating dialog to be displayed",
+			"arg": [],
+			"ret": "void"
 		}
 	}
 }

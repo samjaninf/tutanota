@@ -1,28 +1,34 @@
 import o from "@tutao/otest"
 import { getDateInZone, makeEvent, makeUserController, zone } from "./CalendarTestUtils.js"
-import type { LoginController } from "../../../src/api/main/LoginController.js"
+import type { LoginController } from "../../../src/common/api/main/LoginController.js"
 import { assertThrows, spy } from "@tutao/tutanota-test-utils"
 import { assertNotNull, downcast, getStartOfDay, neverNull, noOp } from "@tutao/tutanota-utils"
-import type { CalendarEvent } from "../../../src/api/entities/tutanota/TypeRefs.js"
-import { addDaysForEventInstance, getMonthRange } from "../../../src/calendar/date/CalendarUtils.js"
-import type { CalendarModel } from "../../../src/calendar/model/CalendarModel.js"
-import { CalendarInfo } from "../../../src/calendar/model/CalendarModel.js"
-import { CalendarEventEditModelsFactory, CalendarEventPreviewModelFactory, CalendarViewModel } from "../../../src/calendar/view/CalendarViewModel.js"
-import { CalendarEventModel, CalendarOperation, EventSaveResult } from "../../../src/calendar/gui/eventeditor-model/CalendarEventModel.js"
-import { EntityClient } from "../../../src/api/common/EntityClient.js"
-import { EventController } from "../../../src/api/main/EventController.js"
-import { ProgressTracker } from "../../../src/api/main/ProgressTracker.js"
-import { DeviceConfig } from "../../../src/misc/DeviceConfig.js"
-import { GroupType, OperationType } from "../../../src/api/common/TutanotaConstants.js"
-import { getElementId, getListId } from "../../../src/api/common/utils/EntityUtils.js"
+import { CalendarEvent } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { EntityClient } from "../../../src/common/api/common/EntityClient.js"
+import { EventController } from "../../../src/common/api/main/EventController.js"
+import { ProgressTracker } from "../../../src/common/api/main/ProgressTracker.js"
+import { DeviceConfig } from "../../../src/common/misc/DeviceConfig.js"
+import { GroupType, OperationType } from "../../../src/common/api/common/TutanotaConstants.js"
+import { getElementId, getListId } from "../../../src/common/api/common/utils/EntityUtils.js"
 import { EntityRestClientMock } from "../api/worker/rest/EntityRestClientMock.js"
-import { ReceivedGroupInvitationsModel } from "../../../src/sharing/model/ReceivedGroupInvitationsModel.js"
-import { ProgressMonitor } from "../../../src/api/common/utils/ProgressMonitor.js"
+import { ReceivedGroupInvitationsModel } from "../../../src/common/sharing/model/ReceivedGroupInvitationsModel.js"
+import { ProgressMonitor } from "../../../src/common/api/common/utils/ProgressMonitor.js"
 import { object, when } from "testdouble"
-import { EntityUpdateData } from "../../../src/api/common/utils/EntityUpdateUtils.js"
+import { EntityUpdateData } from "../../../src/common/api/common/utils/EntityUpdateUtils.js"
 import stream from "mithril/stream"
 import Stream from "mithril/stream"
-import { CalendarEventsRepository, DaysToEvents } from "../../../src/calendar/date/CalendarEventsRepository.js"
+import {
+	CalendarContactPreviewModelFactory,
+	CalendarEventEditModelsFactory,
+	CalendarEventPreviewModelFactory,
+	CalendarViewModel,
+} from "../../../src/calendar-app/calendar/view/CalendarViewModel.js"
+import { CalendarInfo, CalendarModel } from "../../../src/calendar-app/calendar/model/CalendarModel.js"
+import { CalendarEventsRepository, DaysToEvents } from "../../../src/common/calendar/date/CalendarEventsRepository.js"
+import { MailboxModel } from "../../../src/common/mailFunctionality/MailboxModel.js"
+import { addDaysForEventInstance, getMonthRange } from "../../../src/common/calendar/date/CalendarUtils.js"
+import { CalendarEventModel, CalendarOperation, EventSaveResult } from "../../../src/calendar-app/calendar/gui/eventeditor-model/CalendarEventModel.js"
+import { ContactModel } from "../../../src/common/contactsFunctionality/ContactModel.js"
 
 let saveAndSendMock
 let rescheduleEventMock
@@ -58,21 +64,26 @@ o.spec("CalendarViewModel", function () {
 			},
 		})
 		const calendarModel: CalendarModel = object()
+		const contactModel: ContactModel = object()
 		const eventMapStream: Stream<DaysToEvents> = stream(new Map())
 		const calendarInfosStream: Stream<ReadonlyMap<Id, CalendarInfo>> = stream(new Map())
 		const eventsRepository: CalendarEventsRepository = object()
 		when(eventsRepository.getEventsForMonths()).thenReturn(eventMapStream)
 		when(calendarModel.getCalendarInfosStream()).thenReturn(calendarInfosStream)
 		const userController = makeUserController()
+		const isNewPaidPlan = async () => true
 		const loginController: LoginController = downcast({
-			getUserController: () => userController,
+			getUserController: () => ({ ...userController, isNewPaidPlan }),
 			isInternalUserLoggedIn: () => true,
 		})
+		const mailboxModel: MailboxModel = object()
 		const previewModelFactory: CalendarEventPreviewModelFactory = async () => object()
+		const contactPreviewModelFactory: CalendarContactPreviewModelFactory = async () => object()
 		const viewModel = new CalendarViewModel(
 			loginController,
 			makeViewModelCallback,
 			previewModelFactory,
+			contactPreviewModelFactory,
 			calendarModel,
 			eventsRepository,
 			new EntityClient(entityClientMock),
@@ -81,8 +92,10 @@ o.spec("CalendarViewModel", function () {
 			deviceConfig,
 			calendarInvitations,
 			zone,
+			mailboxModel,
+			contactModel,
 		)
-
+		viewModel.allowDrag = () => true
 		return { viewModel, calendarModel, eventsRepository }
 	}
 
@@ -290,6 +303,17 @@ o.spec("CalendarViewModel", function () {
 			o(viewModel._draggedEvent?.originalEvent).equals(undefined)
 			o(viewModel._transientEvents).deepEquals([temporaryEvent2])
 		})
+		o("Block user from dragging non-editable events", async function () {
+			const { viewModel } = initCalendarViewModel(makeCalendarEventModel)
+			let originalEventStartTime = new Date(2021, 8, 22)
+			const event = makeEvent("event", originalEventStartTime, new Date(2021, 8, 23))
+
+			// Try to drag
+			viewModel.allowDrag = () => false
+			simulateDrag(event, new Date(2021, 8, 24), viewModel)
+
+			o(viewModel._draggedEvent?.eventClone).equals(undefined)
+		})
 	})
 	o.spec("Filtering events", function () {
 		o("Before drag, input events are all used", async function () {
@@ -302,15 +326,15 @@ o.spec("CalendarViewModel", function () {
 			]
 			const { days, eventsForDays } = init(inputEvents)
 			const expected = {
-				shortEvents: [[], [], [inputEvents[2]], [], [], [], []],
+				shortEventsPerDay: [[], [], [inputEvents[2]], [], [], [], []],
 				longEvents: [inputEvents[0], inputEvents[1]],
 			}
 
 			eventsRepository.getEventsForMonths()(eventsForDays)
 
-			const { shortEvents, longEvents } = viewModel.getEventsOnDaysToRender(days)
+			const { shortEventsPerDay, longEvents } = viewModel.getEventsOnDaysToRender(days)
 			o({
-				shortEvents,
+				shortEventsPerDay,
 				longEvents: Array.from(longEvents),
 			}).deepEquals(expected)
 		})
@@ -331,8 +355,8 @@ o.spec("CalendarViewModel", function () {
 				shortEvents: [[], [], [], [viewModel._draggedEvent?.eventClone], [], [], []],
 				longEvents: [inputEvents[0], inputEvents[1]],
 			} as any
-			const { shortEvents, longEvents } = viewModel.getEventsOnDaysToRender(days)
-			o(shortEvents).deepEquals(expected.shortEvents)
+			const { shortEventsPerDay, longEvents } = viewModel.getEventsOnDaysToRender(days)
+			o(shortEventsPerDay).deepEquals(expected.shortEvents)
 			o(Array.from(longEvents)).deepEquals(expected.longEvents)
 		})
 		o("After drop, before load", async function () {
@@ -355,8 +379,8 @@ o.spec("CalendarViewModel", function () {
 				shortEvents: [[], [], [], [], [viewModel._transientEvents[0]], [], []],
 				longEvents: [inputEvents[0], inputEvents[1]],
 			}
-			const { shortEvents, longEvents } = viewModel.getEventsOnDaysToRender(days)
-			o(shortEvents).deepEquals(expected.shortEvents)
+			const { shortEventsPerDay, longEvents } = viewModel.getEventsOnDaysToRender(days)
+			o(shortEventsPerDay).deepEquals(expected.shortEvents)
 			o(Array.from(longEvents)).deepEquals(expected.longEvents)
 		})
 	})

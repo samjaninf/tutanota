@@ -1,16 +1,16 @@
 import o from "@tutao/otest"
-import { AccountType, CalendarAttendeeStatus, EndType, RepeatPeriod } from "../../../../src/api/common/TutanotaConstants.js"
+import { AccountType, CalendarAttendeeStatus, EndType, RepeatPeriod } from "../../../../src/common/api/common/TutanotaConstants.js"
 import { func, matchers, object, verify, when } from "testdouble"
-import { UserController } from "../../../../src/api/main/UserController.js"
+import { UserController } from "../../../../src/common/api/main/UserController.js"
 import {
 	CalendarEventEditModels,
 	CalendarOperation,
 	eventHasChanged,
 	EventSaveResult,
 	makeCalendarEventModel,
-} from "../../../../src/calendar/gui/eventeditor-model/CalendarEventModel.js"
-import { CalendarNotificationSender } from "../../../../src/calendar/view/CalendarNotificationSender.js"
-import { CalendarModel } from "../../../../src/calendar/model/CalendarModel.js"
+} from "../../../../src/calendar-app/calendar/gui/eventeditor-model/CalendarEventModel.js"
+import { CalendarNotificationSender } from "../../../../src/calendar-app/calendar/view/CalendarNotificationSender.js"
+import { CalendarModel } from "../../../../src/calendar-app/calendar/model/CalendarModel.js"
 import {
 	CalendarEventAttendeeTypeRef,
 	CalendarEventTypeRef,
@@ -19,8 +19,9 @@ import {
 	MailboxProperties,
 	MailboxPropertiesTypeRef,
 	MailBoxTypeRef,
-} from "../../../../src/api/entities/tutanota/TypeRefs.js"
-import { EntityClient } from "../../../../src/api/common/EntityClient.js"
+	UserSettingsGroupRootTypeRef,
+} from "../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { EntityClient } from "../../../../src/common/api/common/EntityClient.js"
 import { calendars, getDateInZone, makeUserController, otherAddress, ownerAddress, ownerAlias, ownerId, ownerMailAddress } from "../CalendarTestUtils.js"
 import {
 	AlarmInfoTypeRef,
@@ -31,15 +32,15 @@ import {
 	GroupTypeRef,
 	RepeatRuleTypeRef,
 	UserAlarmInfoTypeRef,
-} from "../../../../src/api/entities/sys/TypeRefs.js"
+} from "../../../../src/common/api/entities/sys/TypeRefs.js"
 import { clone, identity, noOp } from "@tutao/tutanota-utils"
-import { RecipientsModel, ResolvableRecipient, ResolveMode } from "../../../../src/api/main/RecipientsModel.js"
-import { LoginController } from "../../../../src/api/main/LoginController.js"
-import { MailboxDetail } from "../../../../src/mail/model/MailModel.js"
-import { FolderSystem } from "../../../../src/api/common/mail/FolderSystem.js"
-import { SendMailModel } from "../../../../src/mail/editor/SendMailModel.js"
+import { RecipientsModel, ResolvableRecipient, ResolveMode } from "../../../../src/common/api/main/RecipientsModel.js"
+import { LoginController } from "../../../../src/common/api/main/LoginController.js"
 import { createTestEntity } from "../../TestUtils.js"
-import { areExcludedDatesEqual, areRepeatRulesEqual } from "../../../../src/calendar/date/CalendarUtils.js"
+import { areExcludedDatesEqual, areRepeatRulesEqual } from "../../../../src/common/calendar/date/CalendarUtils.js"
+import { SendMailModel } from "../../../../src/common/mailFunctionality/SendMailModel.js"
+import { MailboxDetail } from "../../../../src/common/mailFunctionality/MailboxModel.js"
+import { FolderSystem } from "../../../../src/common/api/common/mail/FolderSystem.js"
 
 o.spec("CalendarEventModelTest", function () {
 	let userController: UserController
@@ -103,7 +104,8 @@ o.spec("CalendarEventModelTest", function () {
 			})
 			const recipientsModel: RecipientsModel = object()
 			const logins: LoginController = object()
-			const userController = makeUserController([ownerAlias.address], AccountType.PAID, ownerMailAddress, true)
+			const userSettingsGroupRoot = createTestEntity(UserSettingsGroupRootTypeRef, { groupSettings: [] })
+			const userController = makeUserController([ownerAlias.address], AccountType.PAID, ownerMailAddress, true, false, undefined, userSettingsGroupRoot)
 			when(logins.getUserController()).thenReturn(userController)
 			when(calendarModel.loadAlarms(event.alarmInfos, userController.user)).thenResolve([
 				createTestEntity(UserAlarmInfoTypeRef, {
@@ -129,7 +131,6 @@ o.spec("CalendarEventModelTest", function () {
 			when(recipientsModel.resolve(matchers.anything(), ResolveMode.Eager)).thenDo(() => resolvables[tryCount++])
 			const mailboxDetail: MailboxDetail = {
 				mailbox: createTestEntity(MailBoxTypeRef),
-				folders: new FolderSystem([]),
 				mailGroupInfo: createTestEntity(GroupInfoTypeRef),
 				mailGroup: createTestEntity(GroupTypeRef, {
 					user: ownerId,

@@ -1,7 +1,7 @@
 import o from "@tutao/otest"
 import n from "../../nodemocker.js"
 import { delay, numberRange } from "@tutao/tutanota-utils"
-import { getConfigFile } from "../../../../src/desktop/config/ConfigFile.js"
+import { getConfigFile } from "../../../../src/common/desktop/config/ConfigFile.js"
 
 const MAX_LATENCY = 20
 const rndDelay = () => delay(Math.floor(Math.random() * MAX_LATENCY))
@@ -32,23 +32,17 @@ o.spec("ConfigFileTest", function () {
 	o("ensurePresence works", async function () {
 		const newV = { a: "bye", b: "hello" }
 		const cf = getConfigFile("path", "present.json", n.mock<typeof import("fs")>("fs", fsMock).set())
-		return cf
-			.ensurePresence(newV)
-			.then(() => cf.readJSON())
-			.then((v) => {
-				o(v).notDeepEquals(newV)
-			})
+		await cf.ensurePresence(newV)
+		const v = await cf.readJSON()
+		o(v).notDeepEquals(newV)
 	})
 
 	o("ensurePresence works 2", async function () {
 		const cf = getConfigFile("path", "not-present.json", n.mock<typeof import("fs")>("fs", fsMock).set())
 		const newV = { a: "bye", b: "hello" }
-		return cf
-			.ensurePresence(newV)
-			.then(() => cf.readJSON())
-			.then((v) => {
-				o(v).deepEquals(newV)
-			})
+		await cf.ensurePresence(newV)
+		const v = await cf.readJSON()
+		o(v).deepEquals(newV)
 	})
 
 	o("interleaved reads/writes work", async function () {

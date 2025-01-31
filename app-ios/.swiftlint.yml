@@ -70,9 +70,11 @@ opt_in_rules:
 excluded:
 - .idea
 - fastlane
-- libcrypto.xcframework
 - releases
 - tutanota.xcodeproj
 - tutanota/build
 - tutanota/tutanota-web
 - tutanota/Sources/GeneratedIpc
+- TutanotaSharedFramework/GeneratedIpc
+- MockingbirdMocks
+- MockingbirdSupport

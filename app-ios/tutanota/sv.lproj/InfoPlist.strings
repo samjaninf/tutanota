@@ -12,3 +12,6 @@ TutaoSettingsAction = "Inställningar";
 TutaoCalendarAlarmTitle = "Påminnelse";
 TutaoScheduleAlarmError = "Det gick inte att ställa in ett alarm. Uppdatera programmet.";
 TutaoUnlockCredentialsAction = "Lås upp inloggningsuppgifter";
+TutaoPushNewMail = "Nytt meddelande mottaget.";
+TutaoDeleteAction = "Radera";
+TutaoMarkReadAction = "Markera som läst";
