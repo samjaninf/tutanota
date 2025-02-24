@@ -1,4 +1,5 @@
 import Social
+import TutanotaSharedFramework
 import UIKit
 import WebKit
 
@@ -17,33 +18,34 @@ import WebKit
 		let flatAttachments: [NSItemProvider] = (items.compactMap { $0.attachments }).flatMap { $0 }
 
 		Task {
+			do {
+				let loadedAttachments: [SharedItem] = (await flatAttachments.asyncMap { await loadSharedAttachment($0) }).compactMap { $0 }
+				var info = SharingInfo(identifier: getUniqueInfoLocation(), text: "", fileUrls: [])
 
-			let loadedAttachments: [SharedItem] = (await flatAttachments.asyncMap { await loadSharedAttachment($0) }).compactMap { $0 }
-			var info = SharingInfo(identifier: getUniqueInfoLocation(), text: "", fileUrls: [])
-
-			for attachment in loadedAttachments {
-				TUTSLog("attachment type: \(attachment.ident())")
-				switch attachment {
-				case .fileUrl(ident: _, let content): info.fileUrls.append(content)
-				case .image(ident: _, content: let content):
-					guard let imageURL = await saveUIImage(subdir: info.identifier, image: content) else {
-						TUTSLog("failed to save image, skipping")
-						continue
+				for attachment in loadedAttachments {
+					TUTSLog("attachment type: \(attachment.ident())")
+					switch attachment {
+					case .fileUrl(ident: _, let content): info.fileUrls.append(content)
+					case .image(ident: _, content: let content):
+						guard let imageURL = await saveUIImage(subdir: info.identifier, image: content) else {
+							TUTSLog("failed to save image, skipping")
+							continue
+						}
+						info.fileUrls.append(imageURL)
+					case .text(ident: _, let content): info.text = info.text.appending(content).appending("\n")
+					case .contact(ident: _, let content):
+						guard let vcardUrl = await saveVCard(subdir: info.identifier, vcardText: content) else {
+							TUTSLog("failed to save contact, skipping")
+							continue
+						}
+						info.fileUrls.append(vcardUrl)
 					}
-					info.fileUrls.append(imageURL)
-				case .text(ident: _, let content): info.text = info.text.appending(content).appending("\n")
-				case .contact(ident: _, let content):
-					guard let vcardUrl = await saveVCard(subdir: info.identifier, vcardText: content) else {
-						TUTSLog("failed to save contact, skipping")
-						continue
-					}
-					info.fileUrls.append(vcardUrl)
 				}
-			}
 
-			info.fileUrls = try await copyToSharedStorage(subdir: info.identifier, fileUrls: info.fileUrls)
-			try writeSharingInfo(info: info, infoLocation: info.identifier)
-			openMainAppWithOpenUrl(info.identifier)
+				info.fileUrls = try await copyToSharedStorage(subdir: info.identifier, fileUrls: info.fileUrls)
+				try writeSharingInfo(info: info, infoLocation: info.identifier)
+				openMainAppWithOpenUrl(info.identifier)
+			} catch { TUTSLog("Error while sharing: \(error)") }
 		}
 	}
 
@@ -54,7 +56,7 @@ import WebKit
 			return nil
 		}
 		let imageName = generateImageFileName(imageData: pngData)
-		return try? await writeToSharedStorage(subdir: subdir, name: imageName, content: pngData)
+		return try? writeToSharedStorage(subdir: subdir, name: imageName, content: pngData)
 	}
 
 	/// when the IOS contact app shares contact, it gives us the VCARD text. we need to write it to disk to be able to
@@ -67,12 +69,12 @@ import WebKit
 			return nil
 		}
 		let vcardName: String = extractFNfrom(vcard: vcardText)
-		return try? await writeToSharedStorage(subdir: subdir, name: vcardName.appending(".vcf"), content: convertedData)
+		return try? writeToSharedStorage(subdir: subdir, name: vcardName.appending(".vcf"), content: convertedData)
 	}
 
 	private func openMainAppWithOpenUrl(_ infoLocation: String) {
 		var components = URLComponents()
-		components.scheme = TUTANOTA_SHARE_SCHEME
+		components.scheme = self.selectAppSchema()
 		components.host = infoLocation
 		self.extensionContext?
 			.completeRequest(returningItems: nil) { (_: Bool) in
@@ -84,12 +86,22 @@ import WebKit
 			}
 	}
 
+	private func selectAppSchema() -> String {
+		let bundleId = Bundle.main.bundleIdentifier
+
+		// Fallback to Tuta Mail
+		if bundleId == nil { return TUTANOTA_SHARE_SCHEME }
+		if bundleId!.contains("calendar") { return CALENDAR_SHARE_SCHEME }
+
+		return TUTANOTA_SHARE_SCHEME
+	}
+
 	@objc func openURL(_ url: URL) -> Bool {
 		var responder: UIResponder? = self
 		while responder != nil {
 			if let application = responder as? UIApplication {
-				let result = application.perform(#selector(openURL(_:)), with: url)
-				return result != nil
+				application.open(url)
+				return true
 			}
 			responder = responder?.next
 		}

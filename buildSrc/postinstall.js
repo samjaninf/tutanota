@@ -5,6 +5,8 @@
 import { spawnSync } from "node:child_process"
 
 dumpResolvedModuleVersions()
+await tryToUpdateLibs()
+updateSubmodules()
 
 /**
  * Dumps the dependency tree into `node_modules/.npm-deps-resolved`.
@@ -15,5 +17,21 @@ function dumpResolvedModuleVersions() {
 	console.log(command)
 	// We only depend on zx as devDependency but postinstall is also run when we are installed as a dependency so we can't use zx here.
 	// We anyway do not really care if it fails or not
+	spawnSync(command, { shell: true, stdio: "inherit" })
+}
+
+async function tryToUpdateLibs() {
+	try {
+		await import("rollup")
+	} catch (e) {
+		console.log("cannot update vendored libs as rollup is not installed (installed as a dependency?)")
+		return
+	}
+	const { updateLibs } = await import("./updateLibs.js")
+	await updateLibs()
+}
+
+function updateSubmodules() {
+	const command = "git submodule update --init"
 	spawnSync(command, { shell: true, stdio: "inherit" })
 }

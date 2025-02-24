@@ -9,31 +9,34 @@ import {
 	User,
 	UserExternalAuthInfoTypeRef,
 	UserTypeRef,
-} from "../../../../../src/api/entities/sys/TypeRefs"
-import { createAuthVerifier, encryptKey, KEY_LENGTH_BYTES_AES_256, keyToBase64, sha256Hash, uint8ArrayToBitArray } from "@tutao/tutanota-crypto"
-import { LoginFacade, LoginListener, ResumeSessionErrorReason } from "../../../../../src/api/worker/facades/LoginFacade"
-import { IServiceExecutor } from "../../../../../src/api/common/ServiceRequest"
-import { EntityClient } from "../../../../../src/api/common/EntityClient"
-import { RestClient } from "../../../../../src/api/worker/rest/RestClient"
-import { WorkerImpl } from "../../../../../src/api/worker/WorkerImpl"
-import { InstanceMapper } from "../../../../../src/api/worker/crypto/InstanceMapper"
-import { CryptoFacade, encryptString } from "../../../../../src/api/worker/crypto/CryptoFacade"
-import { CacheStorageLateInitializer } from "../../../../../src/api/worker/rest/CacheStorageProxy"
-import { UserFacade } from "../../../../../src/api/worker/facades/UserFacade"
-import { ChangeKdfService, SaltService, SessionService } from "../../../../../src/api/entities/sys/Services"
-import { Credentials } from "../../../../../src/misc/credentials/Credentials"
+} from "../../../../../src/common/api/entities/sys/TypeRefs"
+import { AesKey, createAuthVerifier, encryptKey, KEY_LENGTH_BYTES_AES_256, keyToBase64, sha256Hash, uint8ArrayToBitArray } from "@tutao/tutanota-crypto"
+import { LoginFacade, LoginListener, ResumeSessionErrorReason } from "../../../../../src/common/api/worker/facades/LoginFacade"
+import { IServiceExecutor } from "../../../../../src/common/api/common/ServiceRequest"
+import { EntityClient } from "../../../../../src/common/api/common/EntityClient"
+import { RestClient } from "../../../../../src/common/api/worker/rest/RestClient"
+import { InstanceMapper } from "../../../../../src/common/api/worker/crypto/InstanceMapper"
+import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade"
+import { CacheStorageLateInitializer } from "../../../../../src/common/api/worker/rest/CacheStorageProxy"
+import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFacade"
+import { ChangeKdfService, SaltService, SessionService } from "../../../../../src/common/api/entities/sys/Services"
+import { Credentials } from "../../../../../src/common/misc/credentials/Credentials"
 import { defer, DeferredObject, uint8ArrayToBase64 } from "@tutao/tutanota-utils"
-import { AccountType, Const, DEFAULT_KDF_TYPE, KdfType } from "../../../../../src/api/common/TutanotaConstants"
-import { AccessExpiredError, ConnectionError, NotAuthenticatedError } from "../../../../../src/api/common/error/RestError"
-import { SessionType } from "../../../../../src/api/common/SessionType"
-import { HttpMethod } from "../../../../../src/api/common/EntityFunctions"
-import { ConnectMode, EventBusClient } from "../../../../../src/api/worker/EventBusClient"
-import { TutanotaPropertiesTypeRef } from "../../../../../src/api/entities/tutanota/TypeRefs"
-import { BlobAccessTokenFacade } from "../../../../../src/api/worker/facades/BlobAccessTokenFacade.js"
-import { EntropyFacade } from "../../../../../src/api/worker/facades/EntropyFacade.js"
-import { DatabaseKeyFactory } from "../../../../../src/misc/credentials/DatabaseKeyFactory.js"
-import { Argon2idFacade } from "../../../../../src/api/worker/facades/Argon2idFacade.js"
+import { AccountType, Const, DEFAULT_KDF_TYPE, KdfType } from "../../../../../src/common/api/common/TutanotaConstants"
+import { AccessExpiredError, ConnectionError, NotAuthenticatedError } from "../../../../../src/common/api/common/error/RestError"
+import { SessionType } from "../../../../../src/common/api/common/SessionType"
+import { HttpMethod } from "../../../../../src/common/api/common/EntityFunctions"
+import { ConnectMode, EventBusClient } from "../../../../../src/common/api/worker/EventBusClient"
+import { TutanotaPropertiesTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs"
+import { BlobAccessTokenFacade } from "../../../../../src/common/api/worker/facades/BlobAccessTokenFacade.js"
+import { EntropyFacade } from "../../../../../src/common/api/worker/facades/EntropyFacade.js"
+import { DatabaseKeyFactory } from "../../../../../src/common/misc/credentials/DatabaseKeyFactory.js"
+import { Argon2idFacade } from "../../../../../src/common/api/worker/facades/Argon2idFacade.js"
 import { createTestEntity } from "../../../TestUtils.js"
+import { KeyRotationFacade } from "../../../../../src/common/api/worker/facades/KeyRotationFacade.js"
+import { CredentialType } from "../../../../../src/common/misc/credentials/CredentialType.js"
+import { encryptString } from "../../../../../src/common/api/worker/crypto/CryptoWrapper.js"
+import { CacheManagementFacade } from "../../../../../src/common/api/worker/facades/lazy/CacheManagementFacade.js"
 
 const { anything, argThat } = matchers
 
@@ -61,7 +64,7 @@ export function verify(demonstration: any, config?: td.VerificationConfig) {
 
 const SALT = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
 
-async function makeUser(userId: Id, kdfVersion: KdfType = DEFAULT_KDF_TYPE, userPassphraseKey: Aes128Key | Aes256Key = PASSWORD_KEY): Promise<User> {
+async function makeUser(userId: Id, kdfVersion: KdfType = DEFAULT_KDF_TYPE, userPassphraseKey: AesKey = PASSWORD_KEY): Promise<User> {
 	const groupKey = encryptKey(userPassphraseKey, [3229306880, 2716953871, 4072167920, 3901332676])
 
 	return createTestEntity(UserTypeRef, {
@@ -81,7 +84,6 @@ async function makeUser(userId: Id, kdfVersion: KdfType = DEFAULT_KDF_TYPE, user
 
 o.spec("LoginFacadeTest", function () {
 	let facade: LoginFacade
-	let workerMock: WorkerImpl
 	let serviceExecutor: IServiceExecutor
 	let restClientMock: RestClient
 	let entityClientMock: EntityClient
@@ -96,11 +98,12 @@ o.spec("LoginFacadeTest", function () {
 	let blobAccessTokenFacade: BlobAccessTokenFacade
 	let databaseKeyFactoryMock: DatabaseKeyFactory
 	let argon2idFacade: Argon2idFacade
+	let cacheManagmentFacadeMock: CacheManagementFacade
 
 	const timeRangeDays = 42
+	const login = "born.slippy@tuta.io"
 
 	o.beforeEach(function () {
-		workerMock = instance(WorkerImpl)
 		serviceExecutor = object()
 		when(serviceExecutor.get(SaltService, anything()), { ignoreExtraArgs: true }).thenResolve(
 			createTestEntity(SaltReturnTypeRef, { salt: SALT, kdfVersion: DEFAULT_KDF_TYPE }),
@@ -138,14 +141,15 @@ o.spec("LoginFacadeTest", function () {
 		databaseKeyFactoryMock = object()
 		argon2idFacade = object()
 		when(argon2idFacade.generateKeyFromPassphrase(anything(), anything())).thenResolve(PASSWORD_KEY)
+		cacheManagmentFacadeMock = object()
 
 		facade = new LoginFacade(
-			workerMock,
 			restClientMock,
 			entityClientMock,
 			loginListener,
 			instanceMapperMock,
 			cryptoFacadeMock,
+			instance(KeyRotationFacade),
 			cacheStorageInitializerMock,
 			serviceExecutor,
 			userFacade,
@@ -154,6 +158,8 @@ o.spec("LoginFacadeTest", function () {
 			databaseKeyFactoryMock,
 			argon2idFacade,
 			entityClientMock,
+			async (error: Error) => {},
+			async () => cacheManagmentFacadeMock,
 		)
 
 		eventBusClientMock = instance(EventBusClient)
@@ -166,30 +172,42 @@ o.spec("LoginFacadeTest", function () {
 			const dbKey = new Uint8Array([1, 2, 3, 4, 1, 2, 3, 4])
 			const passphrase = "hunter2"
 			const userId = "userId"
+			const accessToken = "accessToken"
 
 			o.beforeEach(async function () {
 				when(serviceExecutor.post(SessionService, anything()), { ignoreExtraArgs: true }).thenResolve(
-					createTestEntity(CreateSessionReturnTypeRef, { user: userId, accessToken: "accessToken", challenges: [] }),
+					createTestEntity(CreateSessionReturnTypeRef, { user: userId, accessToken: accessToken, challenges: [] }),
 				)
 				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(await makeUser(userId))
 			})
 
-			o("When a database key is provided and session is persistent it is passed to the offline storage initializer", async function () {
-				await facade.createSession("born.slippy@tuta.io", passphrase, "client", SessionType.Persistent, dbKey)
+			o.test("When a database key is provided and session is persistent it is passed to the offline storage initializer", async function () {
+				await facade.createSession(login, passphrase, "client", SessionType.Persistent, dbKey)
 				verify(cacheStorageInitializerMock.initialize({ type: "offline", databaseKey: dbKey, userId, timeRangeDays: null, forceNewDatabase: false }))
 				verify(databaseKeyFactoryMock.generateKey(), { times: 0 })
 			})
-			o("When no database key is provided and session is persistent, a key is generated and we attempt offline db init", async function () {
+			o.test("When no database key is provided and session is persistent, a key is generated and we attempt offline db init", async function () {
 				const databaseKey = Uint8Array.from([1, 2, 3, 4])
 				when(databaseKeyFactoryMock.generateKey()).thenResolve(databaseKey)
-				await facade.createSession("born.slippy@tuta.io", passphrase, "client", SessionType.Persistent, null)
+				await facade.createSession(login, passphrase, "client", SessionType.Persistent, null)
 				verify(cacheStorageInitializerMock.initialize({ type: "offline", userId, databaseKey, timeRangeDays: null, forceNewDatabase: true }))
 				verify(databaseKeyFactoryMock.generateKey(), { times: 1 })
 			})
-			o("When no database key is provided and session is Login, nothing is passed to the offline storage initialzier", async function () {
-				await facade.createSession("born.slippy@tuta.io", passphrase, "client", SessionType.Login, null)
+			o.test("When no database key is provided and session is Login, nothing is passed to the offline storage initialzier", async function () {
+				await facade.createSession(login, passphrase, "client", SessionType.Login, null)
 				verify(cacheStorageInitializerMock.initialize({ type: "ephemeral", userId }))
 				verify(databaseKeyFactoryMock.generateKey(), { times: 0 })
+			})
+			o.test("When no database key is provided and session is persistent, valid credentials are returned", async () => {
+				const result = await facade.createSession(login, passphrase, "client", SessionType.Persistent, null)
+				const credentials = result.credentials
+				o(credentials.encryptedPassphraseKey).notEquals(null) // TODO: Verify the value (maybe via size?)
+				o(credentials.login).equals(login)
+				o(credentials.userId).equals(userId)
+				o(credentials.encryptedPassword?.length).notEquals(null) // TODO: Verify the value (maybe via size?)
+				o(credentials.encryptedPassword).notEquals(null)
+				o(credentials.type).equals(CredentialType.Internal)
+				o(credentials.accessToken).equals(accessToken)
 			})
 		})
 	})
@@ -213,14 +231,15 @@ o.spec("LoginFacadeTest", function () {
 					 * Identifier which we use for logging in.
 					 * Email address used to log in for internal users, userId for external users.
 					 * */
-					login: "born.slippy@tuta.io",
+					login: login,
 
 					/** Session#accessKey encrypted password. Is set when session is persisted. */
 					encryptedPassword: uint8ArrayToBase64(encryptString(accessKey, passphrase)), // We can't call encryptString in the top level of spec because `random` isn't initialized yet
+					encryptedPassphraseKey: null,
 					accessToken,
 					userId,
-					type: "internal",
-				} as Credentials
+					type: CredentialType.Internal,
+				}
 
 				when(entityClientMock.load(UserTypeRef, userId)).thenResolve(user)
 
@@ -234,17 +253,19 @@ o.spec("LoginFacadeTest", function () {
 				).thenResolve(JSON.stringify({ user: userId, accessKey: keyToBase64(accessKey) }))
 			})
 
-			o("When resuming a session and there is a database key, it is passed to offline storage initialization", async function () {
+			o.test("When resuming a session and there is a database key, it is passed to offline storage initialization", async function () {
 				usingOfflineStorage = true
 				await facade.resumeSession(credentials, null, dbKey, timeRangeDays)
 				verify(cacheStorageInitializerMock.initialize({ type: "offline", databaseKey: dbKey, userId, timeRangeDays, forceNewDatabase: false }))
 			})
-			o("When resuming a session and there is no database key, nothing is passed to offline storage initialization", async function () {
+
+			o.test("When resuming a session and there is no database key, nothing is passed to offline storage initialization", async function () {
 				usingOfflineStorage = true
 				await facade.resumeSession(credentials, null, null, timeRangeDays)
 				verify(cacheStorageInitializerMock.initialize({ type: "ephemeral", userId }))
 			})
-			o("when resuming a session and the offline initialization has created a new database, we do synchronous login", async function () {
+
+			o.test("when resuming a session and the offline initialization has created a new database, we do synchronous login", async function () {
 				usingOfflineStorage = true
 				user.accountType = AccountType.PAID
 				when(
@@ -258,7 +279,8 @@ o.spec("LoginFacadeTest", function () {
 
 				o(facade.asyncLoginState).deepEquals({ state: "idle" })("Synchronous login occured, so once resume returns we have already logged in")
 			})
-			o("when resuming a session and the offline initialization has an existing database, we do async login", async function () {
+
+			o.test("when resuming a session and the offline initialization has an existing database, we do async login", async function () {
 				usingOfflineStorage = true
 				user.accountType = AccountType.PAID
 
@@ -273,7 +295,8 @@ o.spec("LoginFacadeTest", function () {
 
 				o(facade.asyncLoginState).deepEquals({ state: "running" })("Async login occurred so it is still running")
 			})
-			o("when resuming a session and a notauthenticatedError is thrown, the offline db is deleted", async function () {
+
+			o.test("when resuming a session and a notauthenticatedError is thrown, the offline db is deleted", async function () {
 				usingOfflineStorage = true
 				user.accountType = AccountType.FREE
 				when(
@@ -297,6 +320,19 @@ o.spec("LoginFacadeTest", function () {
 				).asyncThrows(NotAuthenticatedError)
 				verify(cacheStorageInitializerMock.deInitialize())
 			})
+
+			o.test("when resuming a session with credentials that don't have encryptedPassphraseKey it is assigned", async () => {
+				usingOfflineStorage = true
+				await facade.resumeSession(credentials, null, null, timeRangeDays)
+
+				verify(
+					loginListener.onFullLoginSuccess(
+						SessionType.Persistent,
+						anything(),
+						argThat((credentials: Credentials) => credentials.encryptedPassphraseKey != null),
+					),
+				)
+			})
 		})
 
 		o.spec("account type combinations", function () {
@@ -318,7 +354,7 @@ o.spec("LoginFacadeTest", function () {
 					 * Identifier which we use for logging in.
 					 * Email address used to log in for internal users, userId for external users.
 					 * */
-					login: "born.slippy@tuta.io",
+					login: login,
 
 					/** Session#accessKey encrypted password. Is set when session is persisted. */
 					encryptedPassword: uint8ArrayToBase64(encryptString(accessKey, passphrase)), // We can't call encryptString in the top level of spec because `random` isn't initialized yet
@@ -341,7 +377,7 @@ o.spec("LoginFacadeTest", function () {
 				when(userFacade.isPartiallyLoggedIn()).thenDo(() => calls.includes("setUser"))
 
 				fullLoginDeferred = defer()
-				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything())).thenDo(() => fullLoginDeferred.resolve())
+				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything(), matchers.anything())).thenDo(() => fullLoginDeferred.resolve())
 			})
 
 			o("When using offline as a free user and with stable connection, login sync", async function () {
@@ -375,7 +411,7 @@ o.spec("LoginFacadeTest", function () {
 				})
 
 				const deferred = defer()
-				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything())).thenDo(() => deferred.resolve(null))
+				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything(), matchers.anything())).thenDo(() => deferred.resolve(null))
 
 				const result = await facade.resumeSession(credentials, { salt: user.salt!, kdfType: DEFAULT_KDF_TYPE }, dbKey, timeRangeDays)
 
@@ -384,7 +420,8 @@ o.spec("LoginFacadeTest", function () {
 				await deferred.promise
 
 				// we would love to prove that part of the login is done async but without injecting some asyncExecutor it's a bit tricky to do
-				o(calls).deepEquals(["setUser", "sessionService"])
+				// we assume to have seUser twice, once using caching entity client and once using non caching entity client.
+				o(calls).deepEquals(["setUser", "sessionService", "setUser"])
 
 				// just wait for the async login to not bleed into other test cases or to not randomly fail
 				await fullLoginDeferred.promise
@@ -399,12 +436,10 @@ o.spec("LoginFacadeTest", function () {
 					throw connectionError
 				})
 
-				const deferred = defer()
-				when(loginListener.onPartialLoginSuccess()).thenDo(() => deferred.resolve(null))
-
 				const result = await facade.resumeSession(credentials, { salt: user.salt!, kdfType: DEFAULT_KDF_TYPE }, dbKey, timeRangeDays)
 
-				await deferred.promise
+				// we expect async resume session so we have to pause current code execution.
+				await Promise.resolve()
 
 				o(result.type).equals("success")
 				o(calls).deepEquals(["setUser", "sessionService"])
@@ -485,7 +520,7 @@ o.spec("LoginFacadeTest", function () {
 					 * Identifier which we use for logging in.
 					 * Email address used to log in for internal users, userId for external users.
 					 * */
-					login: "born.slippy@tuta.io",
+					login: login,
 
 					/** Session#accessKey encrypted password. Is set when session is persisted. */
 					encryptedPassword: uint8ArrayToBase64(encryptString(accessKey, passphrase)), // We can't call encryptString in the top level of spec because `random` isn't initialized yet
@@ -508,7 +543,7 @@ o.spec("LoginFacadeTest", function () {
 				when(userFacade.isPartiallyLoggedIn()).thenDo(() => calls.includes("setUser"))
 
 				fullLoginDeferred = defer()
-				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything())).thenDo(() => fullLoginDeferred.resolve())
+				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything(), matchers.anything())).thenDo(() => fullLoginDeferred.resolve())
 			})
 
 			o("When successfully logged in, userFacade is initialised", async function () {
@@ -585,7 +620,7 @@ o.spec("LoginFacadeTest", function () {
 					 * Identifier which we use for logging in.
 					 * Email address used to log in for internal users, userId for external users.
 					 * */
-					login: "born.slippy@tuta.io",
+					login: login,
 
 					/** Session#accessKey encrypted password. Is set when session is persisted. */
 					encryptedPassword: uint8ArrayToBase64(encryptString(accessKey, passphrase)), // We can't call encryptString in the top level of spec because `random` isn't initialized yet
@@ -612,7 +647,7 @@ o.spec("LoginFacadeTest", function () {
 				when(userFacade.isPartiallyLoggedIn()).thenDo(() => calls.includes("setUser"))
 
 				fullLoginDeferred = defer()
-				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything())).thenDo(() => fullLoginDeferred.resolve())
+				when(loginListener.onFullLoginSuccess(matchers.anything(), matchers.anything(), matchers.anything())).thenDo(() => fullLoginDeferred.resolve())
 			})
 
 			o("When successfully logged in, userFacade is initialised", async function () {
@@ -748,12 +783,11 @@ o.spec("LoginFacadeTest", function () {
 
 	o.spec("Migrating the KDF", function () {
 		o("When the migration is enabled, a new key is derived from the same password with Argon2", async function () {
-			Const.EXECUTE_KDF_MIGRATION = true
-
 			const user = await makeUser("userId", KdfType.Bcrypt)
 			user.salt = SALT
 
-			when(userFacade.getUserGroupKey()).thenReturn([1, 2, 3, 4])
+			when(userFacade.getCurrentUserGroupKey()).thenReturn({ object: [1, 2, 3, 4], version: 0 })
+			Const.EXECUTE_KDF_MIGRATION = true
 			await facade.migrateKdfType(KdfType.Argon2id, "hunter2", user)
 
 			verify(
@@ -772,15 +806,10 @@ o.spec("LoginFacadeTest", function () {
 					}),
 				),
 			)
+			verify(cacheManagmentFacadeMock.reloadUser())
 		})
-
-		o("When the migration is disabled, the service is not called.", async function () {
+		o.afterEach(() => {
 			Const.EXECUTE_KDF_MIGRATION = false
-
-			const user = await makeUser("userId", KdfType.Bcrypt)
-			await facade.migrateKdfType(KdfType.Argon2id, "hunter2", user)
-
-			verify(serviceExecutor.post(ChangeKdfService, anything()), { times: 0 })
 		})
 	})
 })

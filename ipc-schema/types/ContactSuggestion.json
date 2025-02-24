@@ -1,0 +1,8 @@
+{
+	"name": "ContactSuggestion",
+	"type": "struct",
+	"fields": {
+		"name": "string",
+		"mailAddress": "string"
+	}
+}

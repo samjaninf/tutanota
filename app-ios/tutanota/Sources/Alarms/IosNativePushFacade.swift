@@ -1,7 +1,13 @@
 import Foundation
+import TutanotaSharedFramework
 
 class IosNativePushFacade: NativePushFacade {
-
+	func setReceiveCalendarNotificationConfig(_ pushIdentifier: String, _ value: Bool) {
+		self.notificationStorage.setReceiveCalendarNotificationConfig(pushIdentifier, value)
+	}
+	func getReceiveCalendarNotificationConfig(_ pushIdentifier: String) async throws -> Bool {
+		self.notificationStorage.getReceiveCalendarNotificationConfig(pushIdentifier)
+	}
 	private let appDelegate: AppDelegate
 	private let alarmManager: AlarmManager
 	private let notificationStorage: NotificationStorage
@@ -39,7 +45,7 @@ class IosNativePushFacade: NativePushFacade {
 		_ pushIdentifierId: String,
 		_ pushIdentifierSessionKey: DataWrapper
 	) async throws {
-		self.notificationStorage.store(pushIdentifier: identifier, userId: userId, sseOrigin: sseOrigin)
+		try self.notificationStorage.store(pushIdentifier: identifier, userId: userId, sseOrigin: sseOrigin)
 		try self.keychainManager.storeKey(pushIdentifierSessionKey.data, withId: pushIdentifierId)
 	}
 
@@ -54,4 +60,12 @@ class IosNativePushFacade: NativePushFacade {
 	func invalidateAlarmsForUser(_ userId: String) async throws { alarmManager.unscheduleAllAlarms(userId: userId) }
 
 	func removeUser(_ userId: String) async throws { self.notificationStorage.removeUser(userId) }
+	func setExtendedNotificationConfig(_ userId: String, _ mode: TutanotaSharedFramework.ExtendedNotificationMode) async throws {
+		try self.notificationStorage.setExtendedNotificationConfig(userId, mode)
+	}
+
+	func getExtendedNotificationConfig(_ userId: String) async throws -> TutanotaSharedFramework.ExtendedNotificationMode {
+		try self.notificationStorage.getExtendedNotificationConfig(userId)
+	}
+
 }

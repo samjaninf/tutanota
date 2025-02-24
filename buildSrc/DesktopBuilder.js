@@ -10,11 +10,12 @@ import { create as createEnv, preludeEnvPlugin } from "./env.js"
 import cp from "node:child_process"
 import util from "node:util"
 import typescript from "@rollup/plugin-typescript"
-import { copyNativeModulePlugin, nativeBannerPlugin } from "./nativeLibraryRollupPlugin.js"
 import { fileURLToPath } from "node:url"
 import { getCanonicalPlatformName } from "./buildUtils.js"
 import { domainConfigs } from "./DomainConfigs.js"
 import commonjs from "@rollup/plugin-commonjs"
+import { nodeGypPlugin } from "./nodeGypPlugin.js"
+import { napiPlugin } from "./napiPlugin.js"
 
 const exec = util.promisify(cp.exec)
 const buildSrc = dirname(fileURLToPath(import.meta.url))
@@ -23,13 +24,14 @@ const projectRoot = path.resolve(path.join(buildSrc, ".."))
 /**
  * @param dirname directory this was called from
  * @param version application version that gets built
- * @param platform: {"linux"|"win32"|"darwin"} - Canonical platform name of the desktop target to be built
- * @param architecture: {"arm64"|"x64"|"universal"} the instruction set used in the built desktop binary
+ * @param platform {"linux"|"win32"|"darwin"} - Canonical platform name of the desktop target to be built
+ * @param architecture {"arm64"|"x64"|"universal"} the instruction set used in the built desktop binary
  * @param updateUrl where the client should pull its updates from, if any
  * @param nameSuffix suffix used to distinguish test-, prod- or snapshot builds on the same machine
- * @param notarize for the MacOs notarization feature
+ * @param notarize {boolean} for the macOS notarization feature
  * @param outDir where copy the finished artifacts
  * @param unpacked output desktop client without packing it into an installer
+ * @param [disableMinify] {boolean} whether to disible code minified
  * @returns {Promise<void>}
  */
 export async function buildDesktop({ dirname, version, platform, architecture, updateUrl, nameSuffix, notarize, outDir, unpacked, disableMinify }) {
@@ -62,7 +64,6 @@ export async function buildDesktop({ dirname, version, platform, architecture, u
 		notarize,
 		unpacked,
 		sign: (process.env.DEBUG_SIGN && updateUrl !== "") || !!process.env.JENKINS_HOME,
-		linux: platform === "linux",
 		architecture,
 	})
 	console.log("updateUrl is", updateUrl)
@@ -93,6 +94,7 @@ export async function buildDesktop({ dirname, version, platform, architecture, u
 
 	// package for linux, win, mac
 	await electronBuilder.build({
+		// @ts-ignore this is the argument to the cli but it's not in ts types?
 		_: ["build"],
 		win: platform === "win32" ? [] : undefined,
 		mac: platform === "darwin" ? [] : undefined,
@@ -118,18 +120,27 @@ export async function buildDesktop({ dirname, version, platform, architecture, u
 async function rollupDesktop(dirname, outDir, version, platform, architecture, disableMinify) {
 	platform = getCanonicalPlatformName(platform)
 	const mainBundle = await rollup({
-		input: [path.join(dirname, "src/desktop/DesktopMain.ts"), path.join(dirname, "src/desktop/sqlworker.ts")],
+		input: [path.join(dirname, "src/common/desktop/DesktopMain.ts"), path.join(dirname, "src/common/desktop/sqlworker.ts")],
 		// some transitive dep of a transitive dev-dep requires https://www.npmjs.com/package/url
 		// which rollup for some reason won't distinguish from the node builtin.
-		external: ["url", "util", "path", "fs", "os", "http", "https", "crypto", "child_process", "electron"],
+		external: (id, parent, isResolved) => {
+			if (parent != null && parent.endsWith("node-mimimi/dist/binding.cjs")) return true
+			if (id.endsWith(".node")) return true
+			return ["url", "util", "path", "fs", "os", "http", "https", "crypto", "child_process", "electron"].includes(id)
+		},
 		preserveEntrySignatures: false,
 		plugins: [
-			copyNativeModulePlugin({
+			nodeGypPlugin({
 				rootDir: projectRoot,
-				dstPath: "./build/desktop/",
 				platform,
 				architecture,
 				nodeModule: "better-sqlite3",
+				environment: "electron",
+			}),
+			napiPlugin({
+				platform,
+				architecture,
+				nodeModule: "@tutao/node-mimimi",
 			}),
 			typescript({
 				tsconfig: "tsconfig.json",
@@ -143,18 +154,11 @@ async function rollupDesktop(dirname, outDir, version, platform, architecture, d
 			commonjs(),
 			disableMinify ? undefined : terser(),
 			preludeEnvPlugin(createEnv({ staticUrl: null, version, mode: "Desktop", dist: true, domainConfigs })),
-			nativeBannerPlugin({
-				// Relative to the source file from which the .node file is loaded.
-				// In our case it will be desktop/DesktopMain.js, which is located in the same directory.
-				// This depends on the changes we made in our own fork of better_sqlite3.
-				// It's okay to use forward slash here, it is passed to require which can deal with it.
-				"better-sqlite3": "./better-sqlite3.node",
-			}),
 		],
 	})
-	await mainBundle.write({ sourcemap: true, format: "commonjs", dir: outDir })
-	await fs.promises.copyFile(path.join(dirname, "src/desktop/preload.js"), path.join(outDir, "preload.js"))
-	await fs.promises.copyFile(path.join(dirname, "src/desktop/preload-webdialog.js"), path.join(outDir, "preload-webdialog.js"))
+	await mainBundle.write({ sourcemap: true, format: "esm", dir: outDir })
+	await fs.promises.copyFile(path.join(dirname, "src/common/desktop/preload.js"), path.join(outDir, "preload.js"))
+	await fs.promises.copyFile(path.join(dirname, "src/common/desktop/preload-webdialog.js"), path.join(outDir, "preload-webdialog.js"))
 }
 
 /**
@@ -199,16 +203,16 @@ async function downloadLatestMapirs(dllName, dllTrg) {
 		console.log("latest mapirs release", res.url)
 		const asset_id = res.data.assets.find((a) => a.name.startsWith(dllName)).id
 		console.log("Downloading mapirs asset", asset_id)
-		const asset = await octokit.repos.getReleaseAsset(
-			Object.assign(opts, {
-				asset_id,
-				headers: {
-					Accept: "application/octet-stream",
-				},
-			}),
-		)
+		const assetResponse = await octokit.repos.getReleaseAsset({
+			...opts,
+			asset_id,
+			headers: {
+				Accept: "application/octet-stream",
+			},
+		})
 		console.log("Writing mapirs asset")
-		await fs.promises.writeFile(dllTrg, Buffer.from(asset.data))
+		// @ts-ignore not clear how to check for response status so that ts is happy
+		await fs.promises.writeFile(dllTrg, Buffer.from(assetResponse.data))
 		console.log("Mapirs downloaded")
 	} catch (e) {
 		console.error("Failed to download mapirs!", e)

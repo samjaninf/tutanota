@@ -1,19 +1,29 @@
 import o from "@tutao/otest"
-import { MailFacade, phishingMarkerValue, validateMimeTypesForAttachments } from "../../../../../src/api/worker/facades/lazy/MailFacade.js"
-import { MailAddressTypeRef, MailTypeRef, ReportedMailFieldMarkerTypeRef } from "../../../../../src/api/entities/tutanota/TypeRefs.js"
-import { MailAuthenticationStatus, ReportedMailFieldType } from "../../../../../src/api/common/TutanotaConstants.js"
+import { MailFacade, phishingMarkerValue, validateMimeTypesForAttachments } from "../../../../../src/common/api/worker/facades/lazy/MailFacade.js"
+import {
+	InternalRecipientKeyDataTypeRef,
+	MailAddressTypeRef,
+	MailTypeRef,
+	ReportedMailFieldMarkerTypeRef,
+	SecureExternalRecipientKeyDataTypeRef,
+	SendDraftDataTypeRef,
+	SymEncInternalRecipientKeyDataTypeRef,
+} from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { CryptoProtocolVersion, MailAuthenticationStatus, ReportedMailFieldType } from "../../../../../src/common/api/common/TutanotaConstants.js"
 import { object } from "testdouble"
-import { CryptoFacade } from "../../../../../src/api/worker/crypto/CryptoFacade.js"
-import { IServiceExecutor } from "../../../../../src/api/common/ServiceRequest.js"
-import { EntityClient } from "../../../../../src/api/common/EntityClient.js"
-import { BlobFacade } from "../../../../../src/api/worker/facades/lazy/BlobFacade.js"
-import { UserFacade } from "../../../../../src/api/worker/facades/UserFacade"
-import { NativeFileApp } from "../../../../../src/native/common/FileApp.js"
-import { LoginFacade } from "../../../../../src/api/worker/facades/LoginFacade.js"
-import { DataFile } from "../../../../../src/api/common/DataFile.js"
+import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade.js"
+import { IServiceExecutor } from "../../../../../src/common/api/common/ServiceRequest.js"
+import { EntityClient } from "../../../../../src/common/api/common/EntityClient.js"
+import { BlobFacade } from "../../../../../src/common/api/worker/facades/lazy/BlobFacade.js"
+import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFacade"
+import { NativeFileApp } from "../../../../../src/common/native/common/FileApp.js"
+import { LoginFacade } from "../../../../../src/common/api/worker/facades/LoginFacade.js"
+import { DataFile } from "../../../../../src/common/api/common/DataFile.js"
 import { downcast } from "@tutao/tutanota-utils"
-import { ProgrammingError } from "../../../../../src/api/common/error/ProgrammingError.js"
+import { ProgrammingError } from "../../../../../src/common/api/common/error/ProgrammingError.js"
 import { createTestEntity } from "../../../TestUtils.js"
+import { KeyLoaderFacade } from "../../../../../src/common/api/worker/facades/KeyLoaderFacade.js"
+import { PublicKeyProvider } from "../../../../../src/common/api/worker/facades/PublicKeyProvider.js"
 
 o.spec("MailFacade test", function () {
 	let facade: MailFacade
@@ -24,6 +34,8 @@ o.spec("MailFacade test", function () {
 	let blobFacade: BlobFacade
 	let fileApp: NativeFileApp
 	let loginFacade: LoginFacade
+	let keyLoaderFacade: KeyLoaderFacade
+	let publicKeyProvider: PublicKeyProvider
 
 	o.beforeEach(function () {
 		userFacade = object()
@@ -33,7 +45,9 @@ o.spec("MailFacade test", function () {
 		serviceExecutor = object()
 		fileApp = object()
 		loginFacade = object()
-		facade = new MailFacade(userFacade, entity, cryptoFacade, serviceExecutor, blobFacade, fileApp, loginFacade)
+		keyLoaderFacade = object()
+		publicKeyProvider = object()
+		facade = new MailFacade(userFacade, entity, cryptoFacade, serviceExecutor, blobFacade, fileApp, loginFacade, keyLoaderFacade, publicKeyProvider)
 	})
 
 	o.spec("checkMailForPhishing", function () {
@@ -434,6 +448,73 @@ o.spec("MailFacade test", function () {
 			o(() => {
 				validateMimeTypesForAttachments([attach("video/webm; parameterwithoutavalue", "bad.webm")])
 			}).throws(ProgrammingError)
+		})
+
+		o("isTutaCryptMail", () => {
+			const pqRecipient = createTestEntity(InternalRecipientKeyDataTypeRef, { protocolVersion: CryptoProtocolVersion.TUTA_CRYPT })
+			const rsaRecipient = createTestEntity(InternalRecipientKeyDataTypeRef, { protocolVersion: CryptoProtocolVersion.RSA })
+			const secureExternalRecipient = createTestEntity(SecureExternalRecipientKeyDataTypeRef, {})
+			const symEncInternalRecipient = createTestEntity(SymEncInternalRecipientKeyDataTypeRef, {})
+
+			o(
+				facade.isTutaCryptMail(
+					createTestEntity(SendDraftDataTypeRef, {
+						internalRecipientKeyData: [pqRecipient],
+						secureExternalRecipientKeyData: [],
+						symEncInternalRecipientKeyData: [],
+					}),
+				),
+			).equals(true)
+
+			o(
+				facade.isTutaCryptMail(
+					createTestEntity(SendDraftDataTypeRef, {
+						internalRecipientKeyData: [pqRecipient, pqRecipient],
+						secureExternalRecipientKeyData: [],
+						symEncInternalRecipientKeyData: [],
+					}),
+				),
+			).equals(true)
+
+			o(
+				facade.isTutaCryptMail(
+					createTestEntity(SendDraftDataTypeRef, {
+						internalRecipientKeyData: [],
+						secureExternalRecipientKeyData: [],
+						symEncInternalRecipientKeyData: [],
+					}),
+				),
+			).equals(false)
+
+			o(
+				facade.isTutaCryptMail(
+					createTestEntity(SendDraftDataTypeRef, {
+						internalRecipientKeyData: [pqRecipient, rsaRecipient],
+						secureExternalRecipientKeyData: [],
+						symEncInternalRecipientKeyData: [],
+					}),
+				),
+			).equals(false)
+
+			o(
+				facade.isTutaCryptMail(
+					createTestEntity(SendDraftDataTypeRef, {
+						internalRecipientKeyData: [pqRecipient],
+						secureExternalRecipientKeyData: [secureExternalRecipient],
+						symEncInternalRecipientKeyData: [],
+					}),
+				),
+			).equals(false)
+
+			o(
+				facade.isTutaCryptMail(
+					createTestEntity(SendDraftDataTypeRef, {
+						internalRecipientKeyData: [pqRecipient],
+						secureExternalRecipientKeyData: [],
+						symEncInternalRecipientKeyData: [symEncInternalRecipient],
+					}),
+				),
+			).equals(false)
 		})
 	})
 })

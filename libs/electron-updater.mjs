@@ -1,19 +1,19 @@
 import require$$0 from 'events';
-import require$$0$3 from 'crypto';
+import require$$0$2 from 'crypto';
 import require$$1 from 'tty';
 import require$$1$1 from 'util';
-import require$$0$1 from 'os';
+import require$$2 from 'os';
 import require$$1$2 from 'fs';
-import require$$0$2 from 'stream';
+import require$$0$1 from 'stream';
 import require$$4 from 'url';
 import require$$1$3 from 'string_decoder';
-import require$$0$4 from 'constants';
+import require$$0$3 from 'constants';
 import require$$5 from 'assert';
 import require$$1$4 from 'path';
-import require$$1$5 from 'electron';
 import require$$1$6 from 'child_process';
-import require$$2 from 'zlib';
-import require$$3 from 'http';
+import require$$1$5 from 'electron';
+import require$$15 from 'zlib';
+import require$$4$1 from 'http';
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -136,17 +136,9 @@ CancellationToken$1.CancellationError = CancellationError;
 
 var httpExecutor = {};
 
-var srcExports = {};
-var src = {
-  get exports(){ return srcExports; },
-  set exports(v){ srcExports = v; },
-};
+var src = {exports: {}};
 
-var browserExports = {};
-var browser = {
-  get exports(){ return browserExports; },
-  set exports(v){ browserExports = v; },
-};
+var browser = {exports: {}};
 
 /**
  * Helpers.
@@ -179,7 +171,7 @@ function requireMs () {
 	 * @api public
 	 */
 
-	ms = function(val, options) {
+	ms = function (val, options) {
 	  options = options || {};
 	  var type = typeof val;
 	  if (type === 'string' && val.length > 0) {
@@ -492,24 +484,62 @@ function requireCommon () {
 			createDebug.names = [];
 			createDebug.skips = [];
 
-			let i;
-			const split = (typeof namespaces === 'string' ? namespaces : '').split(/[\s,]+/);
-			const len = split.length;
+			const split = (typeof namespaces === 'string' ? namespaces : '')
+				.trim()
+				.replace(' ', ',')
+				.split(',')
+				.filter(Boolean);
 
-			for (i = 0; i < len; i++) {
-				if (!split[i]) {
-					// ignore empty strings
-					continue;
-				}
-
-				namespaces = split[i].replace(/\*/g, '.*?');
-
-				if (namespaces[0] === '-') {
-					createDebug.skips.push(new RegExp('^' + namespaces.slice(1) + '$'));
+			for (const ns of split) {
+				if (ns[0] === '-') {
+					createDebug.skips.push(ns.slice(1));
 				} else {
-					createDebug.names.push(new RegExp('^' + namespaces + '$'));
+					createDebug.names.push(ns);
 				}
 			}
+		}
+
+		/**
+		 * Checks if the given string matches a namespace template, honoring
+		 * asterisks as wildcards.
+		 *
+		 * @param {String} search
+		 * @param {String} template
+		 * @return {Boolean}
+		 */
+		function matchesTemplate(search, template) {
+			let searchIndex = 0;
+			let templateIndex = 0;
+			let starIndex = -1;
+			let matchIndex = 0;
+
+			while (searchIndex < search.length) {
+				if (templateIndex < template.length && (template[templateIndex] === search[searchIndex] || template[templateIndex] === '*')) {
+					// Match character or proceed with wildcard
+					if (template[templateIndex] === '*') {
+						starIndex = templateIndex;
+						matchIndex = searchIndex;
+						templateIndex++; // Skip the '*'
+					} else {
+						searchIndex++;
+						templateIndex++;
+					}
+				} else if (starIndex !== -1) { // eslint-disable-line no-negated-condition
+					// Backtrack to the last '*' and try to match more characters
+					templateIndex = starIndex + 1;
+					matchIndex++;
+					searchIndex = matchIndex;
+				} else {
+					return false; // No match
+				}
+			}
+
+			// Handle trailing '*' in template
+			while (templateIndex < template.length && template[templateIndex] === '*') {
+				templateIndex++;
+			}
+
+			return templateIndex === template.length;
 		}
 
 		/**
@@ -520,8 +550,8 @@ function requireCommon () {
 		*/
 		function disable() {
 			const namespaces = [
-				...createDebug.names.map(toNamespace),
-				...createDebug.skips.map(toNamespace).map(namespace => '-' + namespace)
+				...createDebug.names,
+				...createDebug.skips.map(namespace => '-' + namespace)
 			].join(',');
 			createDebug.enable('');
 			return namespaces;
@@ -535,39 +565,19 @@ function requireCommon () {
 		* @api public
 		*/
 		function enabled(name) {
-			if (name[name.length - 1] === '*') {
-				return true;
-			}
-
-			let i;
-			let len;
-
-			for (i = 0, len = createDebug.skips.length; i < len; i++) {
-				if (createDebug.skips[i].test(name)) {
+			for (const skip of createDebug.skips) {
+				if (matchesTemplate(name, skip)) {
 					return false;
 				}
 			}
 
-			for (i = 0, len = createDebug.names.length; i < len; i++) {
-				if (createDebug.names[i].test(name)) {
+			for (const ns of createDebug.names) {
+				if (matchesTemplate(name, ns)) {
 					return true;
 				}
 			}
 
 			return false;
-		}
-
-		/**
-		* Convert regexp to namespace
-		*
-		* @param {RegExp} regxep
-		* @return {String} namespace
-		* @api private
-		*/
-		function toNamespace(regexp) {
-			return regexp.toString()
-				.substring(2, regexp.toString().length - 2)
-				.replace(/\.\*\?$/, '*');
 		}
 
 		/**
@@ -606,7 +616,7 @@ function requireCommon () {
 var hasRequiredBrowser;
 
 function requireBrowser () {
-	if (hasRequiredBrowser) return browserExports;
+	if (hasRequiredBrowser) return browser.exports;
 	hasRequiredBrowser = 1;
 	(function (module, exports) {
 		/**
@@ -734,14 +744,17 @@ function requireBrowser () {
 				return false;
 			}
 
+			let m;
+
 			// Is webkit? http://stackoverflow.com/a/16459606/376773
 			// document is undefined in react-native: https://github.com/facebook/react-native/pull/1632
+			// eslint-disable-next-line no-return-assign
 			return (typeof document !== 'undefined' && document.documentElement && document.documentElement.style && document.documentElement.style.WebkitAppearance) ||
 				// Is firebug? http://stackoverflow.com/a/398120/376773
 				(typeof window !== 'undefined' && window.console && (window.console.firebug || (window.console.exception && window.console.table))) ||
 				// Is firefox >= v31?
 				// https://developer.mozilla.org/en-US/docs/Tools/Web_Console#Styling_messages
-				(typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/) && parseInt(RegExp.$1, 10) >= 31) ||
+				(typeof navigator !== 'undefined' && navigator.userAgent && (m = navigator.userAgent.toLowerCase().match(/firefox\/(\d+)/)) && parseInt(m[1], 10) >= 31) ||
 				// Double check webkit in userAgent just in case we are in a worker
 				(typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.toLowerCase().match(/applewebkit\/(\d+)/));
 		}
@@ -875,16 +888,12 @@ function requireBrowser () {
 			} catch (error) {
 				return '[UnexpectedJSONParseError]: ' + error.message;
 			}
-		};
-} (browser, browserExports));
-	return browserExports;
+		}; 
+	} (browser, browser.exports));
+	return browser.exports;
 }
 
-var nodeExports = {};
-var node = {
-  get exports(){ return nodeExports; },
-  set exports(v){ nodeExports = v; },
-};
+var node = {exports: {}};
 
 var hasFlag;
 var hasRequiredHasFlag;
@@ -908,7 +917,7 @@ var hasRequiredSupportsColor;
 function requireSupportsColor () {
 	if (hasRequiredSupportsColor) return supportsColor_1;
 	hasRequiredSupportsColor = 1;
-	const os = require$$0$1;
+	const os = require$$2;
 	const tty = require$$1;
 	const hasFlag = requireHasFlag();
 
@@ -1052,7 +1061,7 @@ function requireSupportsColor () {
 var hasRequiredNode;
 
 function requireNode () {
-	if (hasRequiredNode) return nodeExports;
+	if (hasRequiredNode) return node.exports;
 	hasRequiredNode = 1;
 	(function (module, exports) {
 		const tty = require$$1;
@@ -1240,11 +1249,11 @@ function requireNode () {
 		}
 
 		/**
-		 * Invokes `util.format()` with the specified arguments and writes to stderr.
+		 * Invokes `util.formatWithOptions()` with the specified arguments and writes to stderr.
 		 */
 
 		function log(...args) {
-			return process.stderr.write(util.format(...args) + '\n');
+			return process.stderr.write(util.formatWithOptions(exports.inspectOpts, ...args) + '\n');
 		}
 
 		/**
@@ -1313,9 +1322,9 @@ function requireNode () {
 		formatters.O = function (v) {
 			this.inspectOpts.colors = this.useColors;
 			return util.inspect(v, this.inspectOpts);
-		};
-} (node, nodeExports));
-	return nodeExports;
+		}; 
+	} (node, node.exports));
+	return node.exports;
 }
 
 /**
@@ -1323,20 +1332,30 @@ function requireNode () {
  * treat as a browser.
  */
 
-(function (module) {
-	if (typeof process === 'undefined' || process.type === 'renderer' || process.browser === true || process.__nwjs) {
-		module.exports = requireBrowser();
-	} else {
-		module.exports = requireNode();
-	}
-} (src));
+if (typeof process === 'undefined' || process.type === 'renderer' || process.browser === true || process.__nwjs) {
+	src.exports = requireBrowser();
+} else {
+	src.exports = requireNode();
+}
+
+var srcExports = src.exports;
+
+var error = {};
+
+Object.defineProperty(error, "__esModule", { value: true });
+error.newError = newError;
+function newError(message, code) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+}
 
 var ProgressCallbackTransform$1 = {};
 
 Object.defineProperty(ProgressCallbackTransform$1, "__esModule", { value: true });
 ProgressCallbackTransform$1.ProgressCallbackTransform = void 0;
-const stream_1$2 = require$$0$2;
-class ProgressCallbackTransform extends stream_1$2.Transform {
+const stream_1$3 = require$$0$1;
+class ProgressCallbackTransform extends stream_1$3.Transform {
     constructor(total, cancellationToken, onProgress) {
         super();
         this.total = total;
@@ -1386,448 +1405,440 @@ class ProgressCallbackTransform extends stream_1$2.Transform {
 }
 ProgressCallbackTransform$1.ProgressCallbackTransform = ProgressCallbackTransform;
 
-var hasRequiredHttpExecutor;
-
-function requireHttpExecutor () {
-	if (hasRequiredHttpExecutor) return httpExecutor;
-	hasRequiredHttpExecutor = 1;
-	Object.defineProperty(httpExecutor, "__esModule", { value: true });
-	httpExecutor.safeStringifyJson = httpExecutor.configureRequestOptions = httpExecutor.safeGetHeader = httpExecutor.DigestTransform = httpExecutor.configureRequestUrl = httpExecutor.configureRequestOptionsFromUrl = httpExecutor.HttpExecutor = httpExecutor.parseJson = httpExecutor.HttpError = httpExecutor.createHttpError = void 0;
-	const crypto_1 = require$$0$3;
-	const debug_1 = srcExports;
-	const fs_1 = require$$1$2;
-	const stream_1 = require$$0$2;
-	const url_1 = require$$4;
-	const CancellationToken_1 = CancellationToken$1;
-	const index_1 = requireOut();
-	const ProgressCallbackTransform_1 = ProgressCallbackTransform$1;
-	const debug = (0, debug_1.default)("electron-builder");
-	function createHttpError(response, description = null) {
-	    return new HttpError(response.statusCode || -1, `${response.statusCode} ${response.statusMessage}` +
-	        (description == null ? "" : "\n" + JSON.stringify(description, null, "  ")) +
-	        "\nHeaders: " +
-	        safeStringifyJson(response.headers), description);
-	}
-	httpExecutor.createHttpError = createHttpError;
-	const HTTP_STATUS_CODES = new Map([
-	    [429, "Too many requests"],
-	    [400, "Bad request"],
-	    [403, "Forbidden"],
-	    [404, "Not found"],
-	    [405, "Method not allowed"],
-	    [406, "Not acceptable"],
-	    [408, "Request timeout"],
-	    [413, "Request entity too large"],
-	    [500, "Internal server error"],
-	    [502, "Bad gateway"],
-	    [503, "Service unavailable"],
-	    [504, "Gateway timeout"],
-	    [505, "HTTP version not supported"],
-	]);
-	class HttpError extends Error {
-	    constructor(statusCode, message = `HTTP error: ${HTTP_STATUS_CODES.get(statusCode) || statusCode}`, description = null) {
-	        super(message);
-	        this.statusCode = statusCode;
-	        this.description = description;
-	        this.name = "HttpError";
-	        this.code = `HTTP_ERROR_${statusCode}`;
-	    }
-	    isServerError() {
-	        return this.statusCode >= 500 && this.statusCode <= 599;
-	    }
-	}
-	httpExecutor.HttpError = HttpError;
-	function parseJson(result) {
-	    return result.then(it => (it == null || it.length === 0 ? null : JSON.parse(it)));
-	}
-	httpExecutor.parseJson = parseJson;
-	class HttpExecutor {
-	    constructor() {
-	        this.maxRedirects = 10;
-	    }
-	    request(options, cancellationToken = new CancellationToken_1.CancellationToken(), data) {
-	        configureRequestOptions(options);
-	        const json = data == null ? undefined : JSON.stringify(data);
-	        const encodedData = json ? Buffer.from(json) : undefined;
-	        if (encodedData != null) {
-	            debug(json);
-	            const { headers, ...opts } = options;
-	            options = {
-	                method: "post",
-	                headers: {
-	                    "Content-Type": "application/json",
-	                    "Content-Length": encodedData.length,
-	                    ...headers,
-	                },
-	                ...opts,
-	            };
-	        }
-	        return this.doApiRequest(options, cancellationToken, it => it.end(encodedData));
-	    }
-	    doApiRequest(options, cancellationToken, requestProcessor, redirectCount = 0) {
-	        if (debug.enabled) {
-	            debug(`Request: ${safeStringifyJson(options)}`);
-	        }
-	        return cancellationToken.createPromise((resolve, reject, onCancel) => {
-	            const request = this.createRequest(options, (response) => {
-	                try {
-	                    this.handleResponse(response, options, cancellationToken, resolve, reject, redirectCount, requestProcessor);
-	                }
-	                catch (e) {
-	                    reject(e);
-	                }
-	            });
-	            this.addErrorAndTimeoutHandlers(request, reject, options.timeout);
-	            this.addRedirectHandlers(request, options, reject, redirectCount, options => {
-	                this.doApiRequest(options, cancellationToken, requestProcessor, redirectCount).then(resolve).catch(reject);
-	            });
-	            requestProcessor(request, reject);
-	            onCancel(() => request.abort());
-	        });
-	    }
-	    // noinspection JSUnusedLocalSymbols
-	    // eslint-disable-next-line
-	    addRedirectHandlers(request, options, reject, redirectCount, handler) {
-	        // not required for NodeJS
-	    }
-	    addErrorAndTimeoutHandlers(request, reject, timeout = 60 * 1000) {
-	        this.addTimeOutHandler(request, reject, timeout);
-	        request.on("error", reject);
-	        request.on("aborted", () => {
-	            reject(new Error("Request has been aborted by the server"));
-	        });
-	    }
-	    handleResponse(response, options, cancellationToken, resolve, reject, redirectCount, requestProcessor) {
-	        var _a;
-	        if (debug.enabled) {
-	            debug(`Response: ${response.statusCode} ${response.statusMessage}, request options: ${safeStringifyJson(options)}`);
-	        }
-	        // we handle any other >= 400 error on request end (read detailed message in the response body)
-	        if (response.statusCode === 404) {
-	            // error is clear, we don't need to read detailed error description
-	            reject(createHttpError(response, `method: ${options.method || "GET"} url: ${options.protocol || "https:"}//${options.hostname}${options.port ? `:${options.port}` : ""}${options.path}
+Object.defineProperty(httpExecutor, "__esModule", { value: true });
+httpExecutor.DigestTransform = httpExecutor.HttpExecutor = httpExecutor.HttpError = void 0;
+httpExecutor.createHttpError = createHttpError;
+httpExecutor.parseJson = parseJson;
+httpExecutor.configureRequestOptionsFromUrl = configureRequestOptionsFromUrl;
+httpExecutor.configureRequestUrl = configureRequestUrl;
+httpExecutor.safeGetHeader = safeGetHeader;
+httpExecutor.configureRequestOptions = configureRequestOptions;
+httpExecutor.safeStringifyJson = safeStringifyJson;
+const crypto_1$2 = require$$0$2;
+const debug_1$1 = srcExports;
+const fs_1$3 = require$$1$2;
+const stream_1$2 = require$$0$1;
+const url_1$4 = require$$4;
+const CancellationToken_1 = CancellationToken$1;
+const error_1$2 = error;
+const ProgressCallbackTransform_1 = ProgressCallbackTransform$1;
+const debug$3 = (0, debug_1$1.default)("electron-builder");
+function createHttpError(response, description = null) {
+    return new HttpError(response.statusCode || -1, `${response.statusCode} ${response.statusMessage}` +
+        (description == null ? "" : "\n" + JSON.stringify(description, null, "  ")) +
+        "\nHeaders: " +
+        safeStringifyJson(response.headers), description);
+}
+const HTTP_STATUS_CODES = new Map([
+    [429, "Too many requests"],
+    [400, "Bad request"],
+    [403, "Forbidden"],
+    [404, "Not found"],
+    [405, "Method not allowed"],
+    [406, "Not acceptable"],
+    [408, "Request timeout"],
+    [413, "Request entity too large"],
+    [500, "Internal server error"],
+    [502, "Bad gateway"],
+    [503, "Service unavailable"],
+    [504, "Gateway timeout"],
+    [505, "HTTP version not supported"],
+]);
+class HttpError extends Error {
+    constructor(statusCode, message = `HTTP error: ${HTTP_STATUS_CODES.get(statusCode) || statusCode}`, description = null) {
+        super(message);
+        this.statusCode = statusCode;
+        this.description = description;
+        this.name = "HttpError";
+        this.code = `HTTP_ERROR_${statusCode}`;
+    }
+    isServerError() {
+        return this.statusCode >= 500 && this.statusCode <= 599;
+    }
+}
+httpExecutor.HttpError = HttpError;
+function parseJson(result) {
+    return result.then(it => (it == null || it.length === 0 ? null : JSON.parse(it)));
+}
+class HttpExecutor {
+    constructor() {
+        this.maxRedirects = 10;
+    }
+    request(options, cancellationToken = new CancellationToken_1.CancellationToken(), data) {
+        configureRequestOptions(options);
+        const json = data == null ? undefined : JSON.stringify(data);
+        const encodedData = json ? Buffer.from(json) : undefined;
+        if (encodedData != null) {
+            debug$3(json);
+            const { headers, ...opts } = options;
+            options = {
+                method: "post",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Content-Length": encodedData.length,
+                    ...headers,
+                },
+                ...opts,
+            };
+        }
+        return this.doApiRequest(options, cancellationToken, it => it.end(encodedData));
+    }
+    doApiRequest(options, cancellationToken, requestProcessor, redirectCount = 0) {
+        if (debug$3.enabled) {
+            debug$3(`Request: ${safeStringifyJson(options)}`);
+        }
+        return cancellationToken.createPromise((resolve, reject, onCancel) => {
+            const request = this.createRequest(options, (response) => {
+                try {
+                    this.handleResponse(response, options, cancellationToken, resolve, reject, redirectCount, requestProcessor);
+                }
+                catch (e) {
+                    reject(e);
+                }
+            });
+            this.addErrorAndTimeoutHandlers(request, reject, options.timeout);
+            this.addRedirectHandlers(request, options, reject, redirectCount, options => {
+                this.doApiRequest(options, cancellationToken, requestProcessor, redirectCount).then(resolve).catch(reject);
+            });
+            requestProcessor(request, reject);
+            onCancel(() => request.abort());
+        });
+    }
+    // noinspection JSUnusedLocalSymbols
+    // eslint-disable-next-line
+    addRedirectHandlers(request, options, reject, redirectCount, handler) {
+        // not required for NodeJS
+    }
+    addErrorAndTimeoutHandlers(request, reject, timeout = 60 * 1000) {
+        this.addTimeOutHandler(request, reject, timeout);
+        request.on("error", reject);
+        request.on("aborted", () => {
+            reject(new Error("Request has been aborted by the server"));
+        });
+    }
+    handleResponse(response, options, cancellationToken, resolve, reject, redirectCount, requestProcessor) {
+        var _a;
+        if (debug$3.enabled) {
+            debug$3(`Response: ${response.statusCode} ${response.statusMessage}, request options: ${safeStringifyJson(options)}`);
+        }
+        // we handle any other >= 400 error on request end (read detailed message in the response body)
+        if (response.statusCode === 404) {
+            // error is clear, we don't need to read detailed error description
+            reject(createHttpError(response, `method: ${options.method || "GET"} url: ${options.protocol || "https:"}//${options.hostname}${options.port ? `:${options.port}` : ""}${options.path}
 
 Please double check that your authentication token is correct. Due to security reasons, actual status maybe not reported, but 404.
 `));
-	            return;
-	        }
-	        else if (response.statusCode === 204) {
-	            // on DELETE request
-	            resolve();
-	            return;
-	        }
-	        const code = (_a = response.statusCode) !== null && _a !== void 0 ? _a : 0;
-	        const shouldRedirect = code >= 300 && code < 400;
-	        const redirectUrl = safeGetHeader(response, "location");
-	        if (shouldRedirect && redirectUrl != null) {
-	            if (redirectCount > this.maxRedirects) {
-	                reject(this.createMaxRedirectError());
-	                return;
-	            }
-	            this.doApiRequest(HttpExecutor.prepareRedirectUrlOptions(redirectUrl, options), cancellationToken, requestProcessor, redirectCount).then(resolve).catch(reject);
-	            return;
-	        }
-	        response.setEncoding("utf8");
-	        let data = "";
-	        response.on("error", reject);
-	        response.on("data", (chunk) => (data += chunk));
-	        response.on("end", () => {
-	            try {
-	                if (response.statusCode != null && response.statusCode >= 400) {
-	                    const contentType = safeGetHeader(response, "content-type");
-	                    const isJson = contentType != null && (Array.isArray(contentType) ? contentType.find(it => it.includes("json")) != null : contentType.includes("json"));
-	                    reject(createHttpError(response, `method: ${options.method || "GET"} url: ${options.protocol || "https:"}//${options.hostname}${options.port ? `:${options.port}` : ""}${options.path}
+            return;
+        }
+        else if (response.statusCode === 204) {
+            // on DELETE request
+            resolve();
+            return;
+        }
+        const code = (_a = response.statusCode) !== null && _a !== void 0 ? _a : 0;
+        const shouldRedirect = code >= 300 && code < 400;
+        const redirectUrl = safeGetHeader(response, "location");
+        if (shouldRedirect && redirectUrl != null) {
+            if (redirectCount > this.maxRedirects) {
+                reject(this.createMaxRedirectError());
+                return;
+            }
+            this.doApiRequest(HttpExecutor.prepareRedirectUrlOptions(redirectUrl, options), cancellationToken, requestProcessor, redirectCount).then(resolve).catch(reject);
+            return;
+        }
+        response.setEncoding("utf8");
+        let data = "";
+        response.on("error", reject);
+        response.on("data", (chunk) => (data += chunk));
+        response.on("end", () => {
+            try {
+                if (response.statusCode != null && response.statusCode >= 400) {
+                    const contentType = safeGetHeader(response, "content-type");
+                    const isJson = contentType != null && (Array.isArray(contentType) ? contentType.find(it => it.includes("json")) != null : contentType.includes("json"));
+                    reject(createHttpError(response, `method: ${options.method || "GET"} url: ${options.protocol || "https:"}//${options.hostname}${options.port ? `:${options.port}` : ""}${options.path}
 
           Data:
           ${isJson ? JSON.stringify(JSON.parse(data)) : data}
           `));
-	                }
-	                else {
-	                    resolve(data.length === 0 ? null : data);
-	                }
-	            }
-	            catch (e) {
-	                reject(e);
-	            }
-	        });
-	    }
-	    async downloadToBuffer(url, options) {
-	        return await options.cancellationToken.createPromise((resolve, reject, onCancel) => {
-	            const responseChunks = [];
-	            const requestOptions = {
-	                headers: options.headers || undefined,
-	                // because PrivateGitHubProvider requires HttpExecutor.prepareRedirectUrlOptions logic, so, we need to redirect manually
-	                redirect: "manual",
-	            };
-	            configureRequestUrl(url, requestOptions);
-	            configureRequestOptions(requestOptions);
-	            this.doDownload(requestOptions, {
-	                destination: null,
-	                options,
-	                onCancel,
-	                callback: error => {
-	                    if (error == null) {
-	                        resolve(Buffer.concat(responseChunks));
-	                    }
-	                    else {
-	                        reject(error);
-	                    }
-	                },
-	                responseHandler: (response, callback) => {
-	                    let receivedLength = 0;
-	                    response.on("data", (chunk) => {
-	                        receivedLength += chunk.length;
-	                        if (receivedLength > 524288000) {
-	                            callback(new Error("Maximum allowed size is 500 MB"));
-	                            return;
-	                        }
-	                        responseChunks.push(chunk);
-	                    });
-	                    response.on("end", () => {
-	                        callback(null);
-	                    });
-	                },
-	            }, 0);
-	        });
-	    }
-	    doDownload(requestOptions, options, redirectCount) {
-	        const request = this.createRequest(requestOptions, (response) => {
-	            if (response.statusCode >= 400) {
-	                options.callback(new Error(`Cannot download "${requestOptions.protocol || "https:"}//${requestOptions.hostname}${requestOptions.path}", status ${response.statusCode}: ${response.statusMessage}`));
-	                return;
-	            }
-	            // It is possible for the response stream to fail, e.g. when a network is lost while
-	            // response stream is in progress. Stop waiting and reject so consumer can catch the error.
-	            response.on("error", options.callback);
-	            // this code not relevant for Electron (redirect event instead handled)
-	            const redirectUrl = safeGetHeader(response, "location");
-	            if (redirectUrl != null) {
-	                if (redirectCount < this.maxRedirects) {
-	                    this.doDownload(HttpExecutor.prepareRedirectUrlOptions(redirectUrl, requestOptions), options, redirectCount++);
-	                }
-	                else {
-	                    options.callback(this.createMaxRedirectError());
-	                }
-	                return;
-	            }
-	            if (options.responseHandler == null) {
-	                configurePipes(options, response);
-	            }
-	            else {
-	                options.responseHandler(response, options.callback);
-	            }
-	        });
-	        this.addErrorAndTimeoutHandlers(request, options.callback, requestOptions.timeout);
-	        this.addRedirectHandlers(request, requestOptions, options.callback, redirectCount, requestOptions => {
-	            this.doDownload(requestOptions, options, redirectCount++);
-	        });
-	        request.end();
-	    }
-	    createMaxRedirectError() {
-	        return new Error(`Too many redirects (> ${this.maxRedirects})`);
-	    }
-	    addTimeOutHandler(request, callback, timeout) {
-	        request.on("socket", (socket) => {
-	            socket.setTimeout(timeout, () => {
-	                request.abort();
-	                callback(new Error("Request timed out"));
-	            });
-	        });
-	    }
-	    static prepareRedirectUrlOptions(redirectUrl, options) {
-	        const newOptions = configureRequestOptionsFromUrl(redirectUrl, { ...options });
-	        const headers = newOptions.headers;
-	        if (headers === null || headers === void 0 ? void 0 : headers.authorization) {
-	            const parsedNewUrl = new url_1.URL(redirectUrl);
-	            if (parsedNewUrl.hostname.endsWith(".amazonaws.com") || parsedNewUrl.searchParams.has("X-Amz-Credential")) {
-	                delete headers.authorization;
-	            }
-	        }
-	        return newOptions;
-	    }
-	    static retryOnServerError(task, maxRetries = 3) {
-	        for (let attemptNumber = 0;; attemptNumber++) {
-	            try {
-	                return task();
-	            }
-	            catch (e) {
-	                if (attemptNumber < maxRetries && ((e instanceof HttpError && e.isServerError()) || e.code === "EPIPE")) {
-	                    continue;
-	                }
-	                throw e;
-	            }
-	        }
-	    }
-	}
-	httpExecutor.HttpExecutor = HttpExecutor;
-	function configureRequestOptionsFromUrl(url, options) {
-	    const result = configureRequestOptions(options);
-	    configureRequestUrl(new url_1.URL(url), result);
-	    return result;
-	}
-	httpExecutor.configureRequestOptionsFromUrl = configureRequestOptionsFromUrl;
-	function configureRequestUrl(url, options) {
-	    options.protocol = url.protocol;
-	    options.hostname = url.hostname;
-	    if (url.port) {
-	        options.port = url.port;
-	    }
-	    else if (options.port) {
-	        delete options.port;
-	    }
-	    options.path = url.pathname + url.search;
-	}
-	httpExecutor.configureRequestUrl = configureRequestUrl;
-	class DigestTransform extends stream_1.Transform {
-	    // noinspection JSUnusedGlobalSymbols
-	    get actual() {
-	        return this._actual;
-	    }
-	    constructor(expected, algorithm = "sha512", encoding = "base64") {
-	        super();
-	        this.expected = expected;
-	        this.algorithm = algorithm;
-	        this.encoding = encoding;
-	        this._actual = null;
-	        this.isValidateOnEnd = true;
-	        this.digester = (0, crypto_1.createHash)(algorithm);
-	    }
-	    // noinspection JSUnusedGlobalSymbols
-	    _transform(chunk, encoding, callback) {
-	        this.digester.update(chunk);
-	        callback(null, chunk);
-	    }
-	    // noinspection JSUnusedGlobalSymbols
-	    _flush(callback) {
-	        this._actual = this.digester.digest(this.encoding);
-	        if (this.isValidateOnEnd) {
-	            try {
-	                this.validate();
-	            }
-	            catch (e) {
-	                callback(e);
-	                return;
-	            }
-	        }
-	        callback(null);
-	    }
-	    validate() {
-	        if (this._actual == null) {
-	            throw (0, index_1.newError)("Not finished yet", "ERR_STREAM_NOT_FINISHED");
-	        }
-	        if (this._actual !== this.expected) {
-	            throw (0, index_1.newError)(`${this.algorithm} checksum mismatch, expected ${this.expected}, got ${this._actual}`, "ERR_CHECKSUM_MISMATCH");
-	        }
-	        return null;
-	    }
-	}
-	httpExecutor.DigestTransform = DigestTransform;
-	function checkSha2(sha2Header, sha2, callback) {
-	    if (sha2Header != null && sha2 != null && sha2Header !== sha2) {
-	        callback(new Error(`checksum mismatch: expected ${sha2} but got ${sha2Header} (X-Checksum-Sha2 header)`));
-	        return false;
-	    }
-	    return true;
-	}
-	function safeGetHeader(response, headerKey) {
-	    const value = response.headers[headerKey];
-	    if (value == null) {
-	        return null;
-	    }
-	    else if (Array.isArray(value)) {
-	        // electron API
-	        return value.length === 0 ? null : value[value.length - 1];
-	    }
-	    else {
-	        return value;
-	    }
-	}
-	httpExecutor.safeGetHeader = safeGetHeader;
-	function configurePipes(options, response) {
-	    if (!checkSha2(safeGetHeader(response, "X-Checksum-Sha2"), options.options.sha2, options.callback)) {
-	        return;
-	    }
-	    const streams = [];
-	    if (options.options.onProgress != null) {
-	        const contentLength = safeGetHeader(response, "content-length");
-	        if (contentLength != null) {
-	            streams.push(new ProgressCallbackTransform_1.ProgressCallbackTransform(parseInt(contentLength, 10), options.options.cancellationToken, options.options.onProgress));
-	        }
-	    }
-	    const sha512 = options.options.sha512;
-	    if (sha512 != null) {
-	        streams.push(new DigestTransform(sha512, "sha512", sha512.length === 128 && !sha512.includes("+") && !sha512.includes("Z") && !sha512.includes("=") ? "hex" : "base64"));
-	    }
-	    else if (options.options.sha2 != null) {
-	        streams.push(new DigestTransform(options.options.sha2, "sha256", "hex"));
-	    }
-	    const fileOut = (0, fs_1.createWriteStream)(options.destination);
-	    streams.push(fileOut);
-	    let lastStream = response;
-	    for (const stream of streams) {
-	        stream.on("error", (error) => {
-	            fileOut.close();
-	            if (!options.options.cancellationToken.cancelled) {
-	                options.callback(error);
-	            }
-	        });
-	        lastStream = lastStream.pipe(stream);
-	    }
-	    fileOut.on("finish", () => {
-	        fileOut.close(options.callback);
-	    });
-	}
-	function configureRequestOptions(options, token, method) {
-	    if (method != null) {
-	        options.method = method;
-	    }
-	    options.headers = { ...options.headers };
-	    const headers = options.headers;
-	    if (token != null) {
-	        headers.authorization = token.startsWith("Basic") || token.startsWith("Bearer") ? token : `token ${token}`;
-	    }
-	    if (headers["User-Agent"] == null) {
-	        headers["User-Agent"] = "electron-builder";
-	    }
-	    if (method == null || method === "GET" || headers["Cache-Control"] == null) {
-	        headers["Cache-Control"] = "no-cache";
-	    }
-	    // do not specify for node (in any case we use https module)
-	    if (options.protocol == null && process.versions.electron != null) {
-	        options.protocol = "https:";
-	    }
-	    return options;
-	}
-	httpExecutor.configureRequestOptions = configureRequestOptions;
-	function safeStringifyJson(data, skippedNames) {
-	    return JSON.stringify(data, (name, value) => {
-	        if (name.endsWith("Authorization") ||
-	            name.endsWith("authorization") ||
-	            name.endsWith("Password") ||
-	            name.endsWith("PASSWORD") ||
-	            name.endsWith("Token") ||
-	            name.includes("password") ||
-	            name.includes("token") ||
-	            (skippedNames != null && skippedNames.has(name))) {
-	            return "<stripped sensitive data>";
-	        }
-	        return value;
-	    }, 2);
-	}
-	httpExecutor.safeStringifyJson = safeStringifyJson;
-
-	return httpExecutor;
+                }
+                else {
+                    resolve(data.length === 0 ? null : data);
+                }
+            }
+            catch (e) {
+                reject(e);
+            }
+        });
+    }
+    async downloadToBuffer(url, options) {
+        return await options.cancellationToken.createPromise((resolve, reject, onCancel) => {
+            const responseChunks = [];
+            const requestOptions = {
+                headers: options.headers || undefined,
+                // because PrivateGitHubProvider requires HttpExecutor.prepareRedirectUrlOptions logic, so, we need to redirect manually
+                redirect: "manual",
+            };
+            configureRequestUrl(url, requestOptions);
+            configureRequestOptions(requestOptions);
+            this.doDownload(requestOptions, {
+                destination: null,
+                options,
+                onCancel,
+                callback: error => {
+                    if (error == null) {
+                        resolve(Buffer.concat(responseChunks));
+                    }
+                    else {
+                        reject(error);
+                    }
+                },
+                responseHandler: (response, callback) => {
+                    let receivedLength = 0;
+                    response.on("data", (chunk) => {
+                        receivedLength += chunk.length;
+                        if (receivedLength > 524288000) {
+                            callback(new Error("Maximum allowed size is 500 MB"));
+                            return;
+                        }
+                        responseChunks.push(chunk);
+                    });
+                    response.on("end", () => {
+                        callback(null);
+                    });
+                },
+            }, 0);
+        });
+    }
+    doDownload(requestOptions, options, redirectCount) {
+        const request = this.createRequest(requestOptions, (response) => {
+            if (response.statusCode >= 400) {
+                options.callback(new Error(`Cannot download "${requestOptions.protocol || "https:"}//${requestOptions.hostname}${requestOptions.path}", status ${response.statusCode}: ${response.statusMessage}`));
+                return;
+            }
+            // It is possible for the response stream to fail, e.g. when a network is lost while
+            // response stream is in progress. Stop waiting and reject so consumer can catch the error.
+            response.on("error", options.callback);
+            // this code not relevant for Electron (redirect event instead handled)
+            const redirectUrl = safeGetHeader(response, "location");
+            if (redirectUrl != null) {
+                if (redirectCount < this.maxRedirects) {
+                    this.doDownload(HttpExecutor.prepareRedirectUrlOptions(redirectUrl, requestOptions), options, redirectCount++);
+                }
+                else {
+                    options.callback(this.createMaxRedirectError());
+                }
+                return;
+            }
+            if (options.responseHandler == null) {
+                configurePipes(options, response);
+            }
+            else {
+                options.responseHandler(response, options.callback);
+            }
+        });
+        this.addErrorAndTimeoutHandlers(request, options.callback, requestOptions.timeout);
+        this.addRedirectHandlers(request, requestOptions, options.callback, redirectCount, requestOptions => {
+            this.doDownload(requestOptions, options, redirectCount++);
+        });
+        request.end();
+    }
+    createMaxRedirectError() {
+        return new Error(`Too many redirects (> ${this.maxRedirects})`);
+    }
+    addTimeOutHandler(request, callback, timeout) {
+        request.on("socket", (socket) => {
+            socket.setTimeout(timeout, () => {
+                request.abort();
+                callback(new Error("Request timed out"));
+            });
+        });
+    }
+    static prepareRedirectUrlOptions(redirectUrl, options) {
+        const newOptions = configureRequestOptionsFromUrl(redirectUrl, { ...options });
+        const headers = newOptions.headers;
+        if (headers === null || headers === void 0 ? void 0 : headers.authorization) {
+            const parsedNewUrl = new url_1$4.URL(redirectUrl);
+            if (parsedNewUrl.hostname.endsWith(".amazonaws.com") || parsedNewUrl.searchParams.has("X-Amz-Credential")) {
+                delete headers.authorization;
+            }
+        }
+        return newOptions;
+    }
+    static retryOnServerError(task, maxRetries = 3) {
+        for (let attemptNumber = 0;; attemptNumber++) {
+            try {
+                return task();
+            }
+            catch (e) {
+                if (attemptNumber < maxRetries && ((e instanceof HttpError && e.isServerError()) || e.code === "EPIPE")) {
+                    continue;
+                }
+                throw e;
+            }
+        }
+    }
+}
+httpExecutor.HttpExecutor = HttpExecutor;
+function configureRequestOptionsFromUrl(url, options) {
+    const result = configureRequestOptions(options);
+    configureRequestUrl(new url_1$4.URL(url), result);
+    return result;
+}
+function configureRequestUrl(url, options) {
+    options.protocol = url.protocol;
+    options.hostname = url.hostname;
+    if (url.port) {
+        options.port = url.port;
+    }
+    else if (options.port) {
+        delete options.port;
+    }
+    options.path = url.pathname + url.search;
+}
+class DigestTransform extends stream_1$2.Transform {
+    // noinspection JSUnusedGlobalSymbols
+    get actual() {
+        return this._actual;
+    }
+    constructor(expected, algorithm = "sha512", encoding = "base64") {
+        super();
+        this.expected = expected;
+        this.algorithm = algorithm;
+        this.encoding = encoding;
+        this._actual = null;
+        this.isValidateOnEnd = true;
+        this.digester = (0, crypto_1$2.createHash)(algorithm);
+    }
+    // noinspection JSUnusedGlobalSymbols
+    _transform(chunk, encoding, callback) {
+        this.digester.update(chunk);
+        callback(null, chunk);
+    }
+    // noinspection JSUnusedGlobalSymbols
+    _flush(callback) {
+        this._actual = this.digester.digest(this.encoding);
+        if (this.isValidateOnEnd) {
+            try {
+                this.validate();
+            }
+            catch (e) {
+                callback(e);
+                return;
+            }
+        }
+        callback(null);
+    }
+    validate() {
+        if (this._actual == null) {
+            throw (0, error_1$2.newError)("Not finished yet", "ERR_STREAM_NOT_FINISHED");
+        }
+        if (this._actual !== this.expected) {
+            throw (0, error_1$2.newError)(`${this.algorithm} checksum mismatch, expected ${this.expected}, got ${this._actual}`, "ERR_CHECKSUM_MISMATCH");
+        }
+        return null;
+    }
+}
+httpExecutor.DigestTransform = DigestTransform;
+function checkSha2(sha2Header, sha2, callback) {
+    if (sha2Header != null && sha2 != null && sha2Header !== sha2) {
+        callback(new Error(`checksum mismatch: expected ${sha2} but got ${sha2Header} (X-Checksum-Sha2 header)`));
+        return false;
+    }
+    return true;
+}
+function safeGetHeader(response, headerKey) {
+    const value = response.headers[headerKey];
+    if (value == null) {
+        return null;
+    }
+    else if (Array.isArray(value)) {
+        // electron API
+        return value.length === 0 ? null : value[value.length - 1];
+    }
+    else {
+        return value;
+    }
+}
+function configurePipes(options, response) {
+    if (!checkSha2(safeGetHeader(response, "X-Checksum-Sha2"), options.options.sha2, options.callback)) {
+        return;
+    }
+    const streams = [];
+    if (options.options.onProgress != null) {
+        const contentLength = safeGetHeader(response, "content-length");
+        if (contentLength != null) {
+            streams.push(new ProgressCallbackTransform_1.ProgressCallbackTransform(parseInt(contentLength, 10), options.options.cancellationToken, options.options.onProgress));
+        }
+    }
+    const sha512 = options.options.sha512;
+    if (sha512 != null) {
+        streams.push(new DigestTransform(sha512, "sha512", sha512.length === 128 && !sha512.includes("+") && !sha512.includes("Z") && !sha512.includes("=") ? "hex" : "base64"));
+    }
+    else if (options.options.sha2 != null) {
+        streams.push(new DigestTransform(options.options.sha2, "sha256", "hex"));
+    }
+    const fileOut = (0, fs_1$3.createWriteStream)(options.destination);
+    streams.push(fileOut);
+    let lastStream = response;
+    for (const stream of streams) {
+        stream.on("error", (error) => {
+            fileOut.close();
+            if (!options.options.cancellationToken.cancelled) {
+                options.callback(error);
+            }
+        });
+        lastStream = lastStream.pipe(stream);
+    }
+    fileOut.on("finish", () => {
+        fileOut.close(options.callback);
+    });
+}
+function configureRequestOptions(options, token, method) {
+    if (method != null) {
+        options.method = method;
+    }
+    options.headers = { ...options.headers };
+    const headers = options.headers;
+    if (token != null) {
+        headers.authorization = token.startsWith("Basic") || token.startsWith("Bearer") ? token : `token ${token}`;
+    }
+    if (headers["User-Agent"] == null) {
+        headers["User-Agent"] = "electron-builder";
+    }
+    if (method == null || method === "GET" || headers["Cache-Control"] == null) {
+        headers["Cache-Control"] = "no-cache";
+    }
+    // do not specify for node (in any case we use https module)
+    if (options.protocol == null && process.versions.electron != null) {
+        options.protocol = "https:";
+    }
+    return options;
+}
+function safeStringifyJson(data, skippedNames) {
+    return JSON.stringify(data, (name, value) => {
+        if (name.endsWith("Authorization") ||
+            name.endsWith("authorization") ||
+            name.endsWith("Password") ||
+            name.endsWith("PASSWORD") ||
+            name.endsWith("Token") ||
+            name.includes("password") ||
+            name.includes("token") ||
+            (skippedNames != null && skippedNames.has(name))) {
+            return "<stripped sensitive data>";
+        }
+        return value;
+    }, 2);
 }
 
 var publishOptions = {};
 
 Object.defineProperty(publishOptions, "__esModule", { value: true });
-publishOptions.getS3LikeProviderBaseUrl = publishOptions.githubUrl = void 0;
+publishOptions.githubUrl = githubUrl;
+publishOptions.getS3LikeProviderBaseUrl = getS3LikeProviderBaseUrl;
 /** @private */
 function githubUrl(options, defaultHost = "github.com") {
     return `${options.protocol || "https"}://${options.host || defaultHost}`;
 }
-publishOptions.githubUrl = githubUrl;
 function getS3LikeProviderBaseUrl(configuration) {
     const provider = configuration.provider;
     if (provider === "s3") {
@@ -1838,7 +1849,6 @@ function getS3LikeProviderBaseUrl(configuration) {
     }
     throw new Error(`Not supported provider: ${provider}`);
 }
-publishOptions.getS3LikeProviderBaseUrl = getS3LikeProviderBaseUrl;
 function s3Url(options) {
     let url;
     if (options.accelerate == true) {
@@ -1889,7 +1899,7 @@ function spacesUrl(options) {
 var rfc2253Parser = {};
 
 Object.defineProperty(rfc2253Parser, "__esModule", { value: true });
-rfc2253Parser.parseDn = void 0;
+rfc2253Parser.parseDn = parseDn;
 function parseDn(seq) {
     let quoted = false;
     let key = null;
@@ -1966,220 +1976,206 @@ function parseDn(seq) {
     }
     return result;
 }
-rfc2253Parser.parseDn = parseDn;
 
 var uuid = {};
 
-var hasRequiredUuid;
-
-function requireUuid () {
-	if (hasRequiredUuid) return uuid;
-	hasRequiredUuid = 1;
-	Object.defineProperty(uuid, "__esModule", { value: true });
-	uuid.nil = uuid.UUID = void 0;
-	const crypto_1 = require$$0$3;
-	const index_1 = requireOut();
-	const invalidName = "options.name must be either a string or a Buffer";
-	// Node ID according to rfc4122#section-4.5
-	const randomHost = (0, crypto_1.randomBytes)(16);
-	randomHost[0] = randomHost[0] | 0x01;
-	// lookup table hex to byte
-	const hex2byte = {};
-	// lookup table byte to hex
-	const byte2hex = [];
-	// populate lookup tables
-	for (let i = 0; i < 256; i++) {
-	    const hex = (i + 0x100).toString(16).substr(1);
-	    hex2byte[hex] = i;
-	    byte2hex[i] = hex;
-	}
-	// UUID class
-	class UUID {
-	    constructor(uuid) {
-	        this.ascii = null;
-	        this.binary = null;
-	        const check = UUID.check(uuid);
-	        if (!check) {
-	            throw new Error("not a UUID");
-	        }
-	        this.version = check.version;
-	        if (check.format === "ascii") {
-	            this.ascii = uuid;
-	        }
-	        else {
-	            this.binary = uuid;
-	        }
-	    }
-	    static v5(name, namespace) {
-	        return uuidNamed(name, "sha1", 0x50, namespace);
-	    }
-	    toString() {
-	        if (this.ascii == null) {
-	            this.ascii = stringify(this.binary);
-	        }
-	        return this.ascii;
-	    }
-	    inspect() {
-	        return `UUID v${this.version} ${this.toString()}`;
-	    }
-	    static check(uuid, offset = 0) {
-	        if (typeof uuid === "string") {
-	            uuid = uuid.toLowerCase();
-	            if (!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-([a-f0-9]{12})$/.test(uuid)) {
-	                return false;
-	            }
-	            if (uuid === "00000000-0000-0000-0000-000000000000") {
-	                return { version: undefined, variant: "nil", format: "ascii" };
-	            }
-	            return {
-	                version: (hex2byte[uuid[14] + uuid[15]] & 0xf0) >> 4,
-	                variant: getVariant((hex2byte[uuid[19] + uuid[20]] & 0xe0) >> 5),
-	                format: "ascii",
-	            };
-	        }
-	        if (Buffer.isBuffer(uuid)) {
-	            if (uuid.length < offset + 16) {
-	                return false;
-	            }
-	            let i = 0;
-	            for (; i < 16; i++) {
-	                if (uuid[offset + i] !== 0) {
-	                    break;
-	                }
-	            }
-	            if (i === 16) {
-	                return { version: undefined, variant: "nil", format: "binary" };
-	            }
-	            return {
-	                version: (uuid[offset + 6] & 0xf0) >> 4,
-	                variant: getVariant((uuid[offset + 8] & 0xe0) >> 5),
-	                format: "binary",
-	            };
-	        }
-	        throw (0, index_1.newError)("Unknown type of uuid", "ERR_UNKNOWN_UUID_TYPE");
-	    }
-	    // read stringified uuid into a Buffer
-	    static parse(input) {
-	        const buffer = Buffer.allocUnsafe(16);
-	        let j = 0;
-	        for (let i = 0; i < 16; i++) {
-	            buffer[i] = hex2byte[input[j++] + input[j++]];
-	            if (i === 3 || i === 5 || i === 7 || i === 9) {
-	                j += 1;
-	            }
-	        }
-	        return buffer;
-	    }
-	}
-	uuid.UUID = UUID;
-	// from rfc4122#appendix-C
-	UUID.OID = UUID.parse("6ba7b812-9dad-11d1-80b4-00c04fd430c8");
-	// according to rfc4122#section-4.1.1
-	function getVariant(bits) {
-	    switch (bits) {
-	        case 0:
-	        case 1:
-	        case 3:
-	            return "ncs";
-	        case 4:
-	        case 5:
-	            return "rfc4122";
-	        case 6:
-	            return "microsoft";
-	        default:
-	            return "future";
-	    }
-	}
-	var UuidEncoding;
-	(function (UuidEncoding) {
-	    UuidEncoding[UuidEncoding["ASCII"] = 0] = "ASCII";
-	    UuidEncoding[UuidEncoding["BINARY"] = 1] = "BINARY";
-	    UuidEncoding[UuidEncoding["OBJECT"] = 2] = "OBJECT";
-	})(UuidEncoding || (UuidEncoding = {}));
-	// v3 + v5
-	function uuidNamed(name, hashMethod, version, namespace, encoding = UuidEncoding.ASCII) {
-	    const hash = (0, crypto_1.createHash)(hashMethod);
-	    const nameIsNotAString = typeof name !== "string";
-	    if (nameIsNotAString && !Buffer.isBuffer(name)) {
-	        throw (0, index_1.newError)(invalidName, "ERR_INVALID_UUID_NAME");
-	    }
-	    hash.update(namespace);
-	    hash.update(name);
-	    const buffer = hash.digest();
-	    let result;
-	    switch (encoding) {
-	        case UuidEncoding.BINARY:
-	            buffer[6] = (buffer[6] & 0x0f) | version;
-	            buffer[8] = (buffer[8] & 0x3f) | 0x80;
-	            result = buffer;
-	            break;
-	        case UuidEncoding.OBJECT:
-	            buffer[6] = (buffer[6] & 0x0f) | version;
-	            buffer[8] = (buffer[8] & 0x3f) | 0x80;
-	            result = new UUID(buffer);
-	            break;
-	        default:
-	            result =
-	                byte2hex[buffer[0]] +
-	                    byte2hex[buffer[1]] +
-	                    byte2hex[buffer[2]] +
-	                    byte2hex[buffer[3]] +
-	                    "-" +
-	                    byte2hex[buffer[4]] +
-	                    byte2hex[buffer[5]] +
-	                    "-" +
-	                    byte2hex[(buffer[6] & 0x0f) | version] +
-	                    byte2hex[buffer[7]] +
-	                    "-" +
-	                    byte2hex[(buffer[8] & 0x3f) | 0x80] +
-	                    byte2hex[buffer[9]] +
-	                    "-" +
-	                    byte2hex[buffer[10]] +
-	                    byte2hex[buffer[11]] +
-	                    byte2hex[buffer[12]] +
-	                    byte2hex[buffer[13]] +
-	                    byte2hex[buffer[14]] +
-	                    byte2hex[buffer[15]];
-	            break;
-	    }
-	    return result;
-	}
-	function stringify(buffer) {
-	    return (byte2hex[buffer[0]] +
-	        byte2hex[buffer[1]] +
-	        byte2hex[buffer[2]] +
-	        byte2hex[buffer[3]] +
-	        "-" +
-	        byte2hex[buffer[4]] +
-	        byte2hex[buffer[5]] +
-	        "-" +
-	        byte2hex[buffer[6]] +
-	        byte2hex[buffer[7]] +
-	        "-" +
-	        byte2hex[buffer[8]] +
-	        byte2hex[buffer[9]] +
-	        "-" +
-	        byte2hex[buffer[10]] +
-	        byte2hex[buffer[11]] +
-	        byte2hex[buffer[12]] +
-	        byte2hex[buffer[13]] +
-	        byte2hex[buffer[14]] +
-	        byte2hex[buffer[15]]);
-	}
-	// according to rfc4122#section-4.1.7
-	uuid.nil = new UUID("00000000-0000-0000-0000-000000000000");
-	// UUID.v4 = uuidRandom
-	// UUID.v4fast = uuidRandomFast
-	// UUID.v3 = function(options, callback) {
-	//     return uuidNamed("md5", 0x30, options, callback)
-	// }
-
-	return uuid;
+Object.defineProperty(uuid, "__esModule", { value: true });
+uuid.nil = uuid.UUID = void 0;
+const crypto_1$1 = require$$0$2;
+const error_1$1 = error;
+const invalidName = "options.name must be either a string or a Buffer";
+// Node ID according to rfc4122#section-4.5
+const randomHost = (0, crypto_1$1.randomBytes)(16);
+randomHost[0] = randomHost[0] | 0x01;
+// lookup table hex to byte
+const hex2byte = {};
+// lookup table byte to hex
+const byte2hex = [];
+// populate lookup tables
+for (let i = 0; i < 256; i++) {
+    const hex = (i + 0x100).toString(16).substr(1);
+    hex2byte[hex] = i;
+    byte2hex[i] = hex;
 }
+// UUID class
+class UUID {
+    constructor(uuid) {
+        this.ascii = null;
+        this.binary = null;
+        const check = UUID.check(uuid);
+        if (!check) {
+            throw new Error("not a UUID");
+        }
+        this.version = check.version;
+        if (check.format === "ascii") {
+            this.ascii = uuid;
+        }
+        else {
+            this.binary = uuid;
+        }
+    }
+    static v5(name, namespace) {
+        return uuidNamed(name, "sha1", 0x50, namespace);
+    }
+    toString() {
+        if (this.ascii == null) {
+            this.ascii = stringify$4(this.binary);
+        }
+        return this.ascii;
+    }
+    inspect() {
+        return `UUID v${this.version} ${this.toString()}`;
+    }
+    static check(uuid, offset = 0) {
+        if (typeof uuid === "string") {
+            uuid = uuid.toLowerCase();
+            if (!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-([a-f0-9]{12})$/.test(uuid)) {
+                return false;
+            }
+            if (uuid === "00000000-0000-0000-0000-000000000000") {
+                return { version: undefined, variant: "nil", format: "ascii" };
+            }
+            return {
+                version: (hex2byte[uuid[14] + uuid[15]] & 0xf0) >> 4,
+                variant: getVariant((hex2byte[uuid[19] + uuid[20]] & 0xe0) >> 5),
+                format: "ascii",
+            };
+        }
+        if (Buffer.isBuffer(uuid)) {
+            if (uuid.length < offset + 16) {
+                return false;
+            }
+            let i = 0;
+            for (; i < 16; i++) {
+                if (uuid[offset + i] !== 0) {
+                    break;
+                }
+            }
+            if (i === 16) {
+                return { version: undefined, variant: "nil", format: "binary" };
+            }
+            return {
+                version: (uuid[offset + 6] & 0xf0) >> 4,
+                variant: getVariant((uuid[offset + 8] & 0xe0) >> 5),
+                format: "binary",
+            };
+        }
+        throw (0, error_1$1.newError)("Unknown type of uuid", "ERR_UNKNOWN_UUID_TYPE");
+    }
+    // read stringified uuid into a Buffer
+    static parse(input) {
+        const buffer = Buffer.allocUnsafe(16);
+        let j = 0;
+        for (let i = 0; i < 16; i++) {
+            buffer[i] = hex2byte[input[j++] + input[j++]];
+            if (i === 3 || i === 5 || i === 7 || i === 9) {
+                j += 1;
+            }
+        }
+        return buffer;
+    }
+}
+uuid.UUID = UUID;
+// from rfc4122#appendix-C
+UUID.OID = UUID.parse("6ba7b812-9dad-11d1-80b4-00c04fd430c8");
+// according to rfc4122#section-4.1.1
+function getVariant(bits) {
+    switch (bits) {
+        case 0:
+        case 1:
+        case 3:
+            return "ncs";
+        case 4:
+        case 5:
+            return "rfc4122";
+        case 6:
+            return "microsoft";
+        default:
+            return "future";
+    }
+}
+var UuidEncoding;
+(function (UuidEncoding) {
+    UuidEncoding[UuidEncoding["ASCII"] = 0] = "ASCII";
+    UuidEncoding[UuidEncoding["BINARY"] = 1] = "BINARY";
+    UuidEncoding[UuidEncoding["OBJECT"] = 2] = "OBJECT";
+})(UuidEncoding || (UuidEncoding = {}));
+// v3 + v5
+function uuidNamed(name, hashMethod, version, namespace, encoding = UuidEncoding.ASCII) {
+    const hash = (0, crypto_1$1.createHash)(hashMethod);
+    const nameIsNotAString = typeof name !== "string";
+    if (nameIsNotAString && !Buffer.isBuffer(name)) {
+        throw (0, error_1$1.newError)(invalidName, "ERR_INVALID_UUID_NAME");
+    }
+    hash.update(namespace);
+    hash.update(name);
+    const buffer = hash.digest();
+    let result;
+    switch (encoding) {
+        case UuidEncoding.BINARY:
+            buffer[6] = (buffer[6] & 0x0f) | version;
+            buffer[8] = (buffer[8] & 0x3f) | 0x80;
+            result = buffer;
+            break;
+        case UuidEncoding.OBJECT:
+            buffer[6] = (buffer[6] & 0x0f) | version;
+            buffer[8] = (buffer[8] & 0x3f) | 0x80;
+            result = new UUID(buffer);
+            break;
+        default:
+            result =
+                byte2hex[buffer[0]] +
+                    byte2hex[buffer[1]] +
+                    byte2hex[buffer[2]] +
+                    byte2hex[buffer[3]] +
+                    "-" +
+                    byte2hex[buffer[4]] +
+                    byte2hex[buffer[5]] +
+                    "-" +
+                    byte2hex[(buffer[6] & 0x0f) | version] +
+                    byte2hex[buffer[7]] +
+                    "-" +
+                    byte2hex[(buffer[8] & 0x3f) | 0x80] +
+                    byte2hex[buffer[9]] +
+                    "-" +
+                    byte2hex[buffer[10]] +
+                    byte2hex[buffer[11]] +
+                    byte2hex[buffer[12]] +
+                    byte2hex[buffer[13]] +
+                    byte2hex[buffer[14]] +
+                    byte2hex[buffer[15]];
+            break;
+    }
+    return result;
+}
+function stringify$4(buffer) {
+    return (byte2hex[buffer[0]] +
+        byte2hex[buffer[1]] +
+        byte2hex[buffer[2]] +
+        byte2hex[buffer[3]] +
+        "-" +
+        byte2hex[buffer[4]] +
+        byte2hex[buffer[5]] +
+        "-" +
+        byte2hex[buffer[6]] +
+        byte2hex[buffer[7]] +
+        "-" +
+        byte2hex[buffer[8]] +
+        byte2hex[buffer[9]] +
+        "-" +
+        byte2hex[buffer[10]] +
+        byte2hex[buffer[11]] +
+        byte2hex[buffer[12]] +
+        byte2hex[buffer[13]] +
+        byte2hex[buffer[14]] +
+        byte2hex[buffer[15]]);
+}
+// according to rfc4122#section-4.1.7
+uuid.nil = new UUID("00000000-0000-0000-0000-000000000000");
 
 var xml = {};
 
-var sax = {};
+var sax$1 = {};
 
 (function (exports) {
 (function (sax) { // wrapper for non-node envs
@@ -2253,6 +2249,12 @@ var sax = {};
 	    // which protos to its parent tag.
 	    if (parser.opt.xmlns) {
 	      parser.ns = Object.create(rootNS);
+	    }
+
+	    // disallow unquoted attribute values if not otherwise configured
+	    // and strict mode is true
+	    if (parser.opt.unquotedAttributeValues === undefined) {
+	      parser.opt.unquotedAttributeValues = !strict;
 	    }
 
 	    // mostly just for error reporting
@@ -3272,15 +3274,22 @@ var sax = {};
 	          continue
 
 	        case S.SGML_DECL:
-	          if ((parser.sgmlDecl + c).toUpperCase() === CDATA) {
+	          if (parser.sgmlDecl + c === '--') {
+	            parser.state = S.COMMENT;
+	            parser.comment = '';
+	            parser.sgmlDecl = '';
+	            continue;
+	          }
+
+	          if (parser.doctype && parser.doctype !== true && parser.sgmlDecl) {
+	            parser.state = S.DOCTYPE_DTD;
+	            parser.doctype += '<!' + parser.sgmlDecl + c;
+	            parser.sgmlDecl = '';
+	          } else if ((parser.sgmlDecl + c).toUpperCase() === CDATA) {
 	            emitNode(parser, 'onopencdata');
 	            parser.state = S.CDATA;
 	            parser.sgmlDecl = '';
 	            parser.cdata = '';
-	          } else if (parser.sgmlDecl + c === '--') {
-	            parser.state = S.COMMENT;
-	            parser.comment = '';
-	            parser.sgmlDecl = '';
 	          } else if ((parser.sgmlDecl + c).toUpperCase() === DOCTYPE) {
 	            parser.state = S.DOCTYPE;
 	            if (parser.doctype || parser.sawRoot) {
@@ -3334,12 +3343,18 @@ var sax = {};
 	          continue
 
 	        case S.DOCTYPE_DTD:
-	          parser.doctype += c;
 	          if (c === ']') {
+	            parser.doctype += c;
 	            parser.state = S.DOCTYPE;
+	          } else if (c === '<') {
+	            parser.state = S.OPEN_WAKA;
+	            parser.startTagPosition = parser.position;
 	          } else if (isQuote(c)) {
+	            parser.doctype += c;
 	            parser.state = S.DOCTYPE_DTD_QUOTED;
 	            parser.q = c;
+	          } else {
+	            parser.doctype += c;
 	          }
 	          continue
 
@@ -3380,6 +3395,8 @@ var sax = {};
 	            // which is a comment of " blah -- bloo "
 	            parser.comment += '--' + c;
 	            parser.state = S.COMMENT;
+	          } else if (parser.doctype && parser.doctype !== true) {
+	            parser.state = S.DOCTYPE_DTD;
 	          } else {
 	            parser.state = S.TEXT;
 	          }
@@ -3547,7 +3564,9 @@ var sax = {};
 	            parser.q = c;
 	            parser.state = S.ATTRIB_VALUE_QUOTED;
 	          } else {
-	            strictFail(parser, 'Unquoted attribute value');
+	            if (!parser.opt.unquotedAttributeValues) {
+	              error(parser, 'Unquoted attribute value');
+	            }
 	            parser.state = S.ATTRIB_VALUE_UNQUOTED;
 	            parser.attribValue = c;
 	          }
@@ -3665,13 +3684,13 @@ var sax = {};
 	          }
 
 	          if (c === ';') {
-	            if (parser.opt.unparsedEntities) {
-	              var parsedEntity = parseEntity(parser);
+	            var parsedEntity = parseEntity(parser);
+	            if (parser.opt.unparsedEntities && !Object.values(sax.XML_ENTITIES).includes(parsedEntity)) {
 	              parser.entity = '';
 	              parser.state = returnState;
 	              parser.write(parsedEntity);
 	            } else {
-	              parser[buffer] += parseEntity(parser);
+	              parser[buffer] += parsedEntity;
 	              parser.entity = '';
 	              parser.state = returnState;
 	            }
@@ -3753,185 +3772,211 @@ var sax = {};
 	      }
 	    }());
 	  }
-	})(exports);
-} (sax));
+	})(exports); 
+} (sax$1));
 
-var hasRequiredXml;
-
-function requireXml () {
-	if (hasRequiredXml) return xml;
-	hasRequiredXml = 1;
-	Object.defineProperty(xml, "__esModule", { value: true });
-	xml.parseXml = xml.XElement = void 0;
-	const sax$1 = sax;
-	const index_1 = requireOut();
-	class XElement {
-	    constructor(name) {
-	        this.name = name;
-	        this.value = "";
-	        this.attributes = null;
-	        this.isCData = false;
-	        this.elements = null;
-	        if (!name) {
-	            throw (0, index_1.newError)("Element name cannot be empty", "ERR_XML_ELEMENT_NAME_EMPTY");
-	        }
-	        if (!isValidName(name)) {
-	            throw (0, index_1.newError)(`Invalid element name: ${name}`, "ERR_XML_ELEMENT_INVALID_NAME");
-	        }
-	    }
-	    attribute(name) {
-	        const result = this.attributes === null ? null : this.attributes[name];
-	        if (result == null) {
-	            throw (0, index_1.newError)(`No attribute "${name}"`, "ERR_XML_MISSED_ATTRIBUTE");
-	        }
-	        return result;
-	    }
-	    removeAttribute(name) {
-	        if (this.attributes !== null) {
-	            delete this.attributes[name];
-	        }
-	    }
-	    element(name, ignoreCase = false, errorIfMissed = null) {
-	        const result = this.elementOrNull(name, ignoreCase);
-	        if (result === null) {
-	            throw (0, index_1.newError)(errorIfMissed || `No element "${name}"`, "ERR_XML_MISSED_ELEMENT");
-	        }
-	        return result;
-	    }
-	    elementOrNull(name, ignoreCase = false) {
-	        if (this.elements === null) {
-	            return null;
-	        }
-	        for (const element of this.elements) {
-	            if (isNameEquals(element, name, ignoreCase)) {
-	                return element;
-	            }
-	        }
-	        return null;
-	    }
-	    getElements(name, ignoreCase = false) {
-	        if (this.elements === null) {
-	            return [];
-	        }
-	        return this.elements.filter(it => isNameEquals(it, name, ignoreCase));
-	    }
-	    elementValueOrEmpty(name, ignoreCase = false) {
-	        const element = this.elementOrNull(name, ignoreCase);
-	        return element === null ? "" : element.value;
-	    }
-	}
-	xml.XElement = XElement;
-	const NAME_REG_EXP = new RegExp(/^[A-Za-z_][:A-Za-z0-9_-]*$/i);
-	function isValidName(name) {
-	    return NAME_REG_EXP.test(name);
-	}
-	function isNameEquals(element, name, ignoreCase) {
-	    const elementName = element.name;
-	    return elementName === name || (ignoreCase === true && elementName.length === name.length && elementName.toLowerCase() === name.toLowerCase());
-	}
-	function parseXml(data) {
-	    let rootElement = null;
-	    const parser = sax$1.parser(true, {});
-	    const elements = [];
-	    parser.onopentag = saxElement => {
-	        const element = new XElement(saxElement.name);
-	        element.attributes = saxElement.attributes;
-	        if (rootElement === null) {
-	            rootElement = element;
-	        }
-	        else {
-	            const parent = elements[elements.length - 1];
-	            if (parent.elements == null) {
-	                parent.elements = [];
-	            }
-	            parent.elements.push(element);
-	        }
-	        elements.push(element);
-	    };
-	    parser.onclosetag = () => {
-	        elements.pop();
-	    };
-	    parser.ontext = text => {
-	        if (elements.length > 0) {
-	            elements[elements.length - 1].value = text;
-	        }
-	    };
-	    parser.oncdata = cdata => {
-	        const element = elements[elements.length - 1];
-	        element.value = cdata;
-	        element.isCData = true;
-	    };
-	    parser.onerror = err => {
-	        throw err;
-	    };
-	    parser.write(data);
-	    return rootElement;
-	}
-	xml.parseXml = parseXml;
-
-	return xml;
+Object.defineProperty(xml, "__esModule", { value: true });
+xml.XElement = void 0;
+xml.parseXml = parseXml;
+const sax = sax$1;
+const error_1 = error;
+class XElement {
+    constructor(name) {
+        this.name = name;
+        this.value = "";
+        this.attributes = null;
+        this.isCData = false;
+        this.elements = null;
+        if (!name) {
+            throw (0, error_1.newError)("Element name cannot be empty", "ERR_XML_ELEMENT_NAME_EMPTY");
+        }
+        if (!isValidName(name)) {
+            throw (0, error_1.newError)(`Invalid element name: ${name}`, "ERR_XML_ELEMENT_INVALID_NAME");
+        }
+    }
+    attribute(name) {
+        const result = this.attributes === null ? null : this.attributes[name];
+        if (result == null) {
+            throw (0, error_1.newError)(`No attribute "${name}"`, "ERR_XML_MISSED_ATTRIBUTE");
+        }
+        return result;
+    }
+    removeAttribute(name) {
+        if (this.attributes !== null) {
+            delete this.attributes[name];
+        }
+    }
+    element(name, ignoreCase = false, errorIfMissed = null) {
+        const result = this.elementOrNull(name, ignoreCase);
+        if (result === null) {
+            throw (0, error_1.newError)(errorIfMissed || `No element "${name}"`, "ERR_XML_MISSED_ELEMENT");
+        }
+        return result;
+    }
+    elementOrNull(name, ignoreCase = false) {
+        if (this.elements === null) {
+            return null;
+        }
+        for (const element of this.elements) {
+            if (isNameEquals(element, name, ignoreCase)) {
+                return element;
+            }
+        }
+        return null;
+    }
+    getElements(name, ignoreCase = false) {
+        if (this.elements === null) {
+            return [];
+        }
+        return this.elements.filter(it => isNameEquals(it, name, ignoreCase));
+    }
+    elementValueOrEmpty(name, ignoreCase = false) {
+        const element = this.elementOrNull(name, ignoreCase);
+        return element === null ? "" : element.value;
+    }
+}
+xml.XElement = XElement;
+const NAME_REG_EXP = new RegExp(/^[A-Za-z_][:A-Za-z0-9_-]*$/i);
+function isValidName(name) {
+    return NAME_REG_EXP.test(name);
+}
+function isNameEquals(element, name, ignoreCase) {
+    const elementName = element.name;
+    return elementName === name || (ignoreCase === true && elementName.length === name.length && elementName.toLowerCase() === name.toLowerCase());
+}
+function parseXml(data) {
+    let rootElement = null;
+    const parser = sax.parser(true, {});
+    const elements = [];
+    parser.onopentag = saxElement => {
+        const element = new XElement(saxElement.name);
+        element.attributes = saxElement.attributes;
+        if (rootElement === null) {
+            rootElement = element;
+        }
+        else {
+            const parent = elements[elements.length - 1];
+            if (parent.elements == null) {
+                parent.elements = [];
+            }
+            parent.elements.push(element);
+        }
+        elements.push(element);
+    };
+    parser.onclosetag = () => {
+        elements.pop();
+    };
+    parser.ontext = text => {
+        if (elements.length > 0) {
+            elements[elements.length - 1].value = text;
+        }
+    };
+    parser.oncdata = cdata => {
+        const element = elements[elements.length - 1];
+        element.value = cdata;
+        element.isCData = true;
+    };
+    parser.onerror = err => {
+        throw err;
+    };
+    parser.write(data);
+    return rootElement;
 }
 
-var hasRequiredOut;
+var MemoLazy$1 = {};
 
-function requireOut () {
-	if (hasRequiredOut) return out;
-	hasRequiredOut = 1;
-	(function (exports) {
-		Object.defineProperty(exports, "__esModule", { value: true });
-		exports.newError = exports.asArray = exports.CURRENT_APP_PACKAGE_FILE_NAME = exports.CURRENT_APP_INSTALLER_FILE_NAME = exports.XElement = exports.parseXml = exports.ProgressCallbackTransform = exports.UUID = exports.parseDn = exports.githubUrl = exports.getS3LikeProviderBaseUrl = exports.configureRequestUrl = exports.parseJson = exports.safeStringifyJson = exports.configureRequestOptionsFromUrl = exports.configureRequestOptions = exports.safeGetHeader = exports.DigestTransform = exports.HttpExecutor = exports.createHttpError = exports.HttpError = exports.CancellationError = exports.CancellationToken = void 0;
-		var CancellationToken_1 = CancellationToken$1;
-		Object.defineProperty(exports, "CancellationToken", { enumerable: true, get: function () { return CancellationToken_1.CancellationToken; } });
-		Object.defineProperty(exports, "CancellationError", { enumerable: true, get: function () { return CancellationToken_1.CancellationError; } });
-		var httpExecutor_1 = requireHttpExecutor();
-		Object.defineProperty(exports, "HttpError", { enumerable: true, get: function () { return httpExecutor_1.HttpError; } });
-		Object.defineProperty(exports, "createHttpError", { enumerable: true, get: function () { return httpExecutor_1.createHttpError; } });
-		Object.defineProperty(exports, "HttpExecutor", { enumerable: true, get: function () { return httpExecutor_1.HttpExecutor; } });
-		Object.defineProperty(exports, "DigestTransform", { enumerable: true, get: function () { return httpExecutor_1.DigestTransform; } });
-		Object.defineProperty(exports, "safeGetHeader", { enumerable: true, get: function () { return httpExecutor_1.safeGetHeader; } });
-		Object.defineProperty(exports, "configureRequestOptions", { enumerable: true, get: function () { return httpExecutor_1.configureRequestOptions; } });
-		Object.defineProperty(exports, "configureRequestOptionsFromUrl", { enumerable: true, get: function () { return httpExecutor_1.configureRequestOptionsFromUrl; } });
-		Object.defineProperty(exports, "safeStringifyJson", { enumerable: true, get: function () { return httpExecutor_1.safeStringifyJson; } });
-		Object.defineProperty(exports, "parseJson", { enumerable: true, get: function () { return httpExecutor_1.parseJson; } });
-		Object.defineProperty(exports, "configureRequestUrl", { enumerable: true, get: function () { return httpExecutor_1.configureRequestUrl; } });
-		var publishOptions_1 = publishOptions;
-		Object.defineProperty(exports, "getS3LikeProviderBaseUrl", { enumerable: true, get: function () { return publishOptions_1.getS3LikeProviderBaseUrl; } });
-		Object.defineProperty(exports, "githubUrl", { enumerable: true, get: function () { return publishOptions_1.githubUrl; } });
-		var rfc2253Parser_1 = rfc2253Parser;
-		Object.defineProperty(exports, "parseDn", { enumerable: true, get: function () { return rfc2253Parser_1.parseDn; } });
-		var uuid_1 = requireUuid();
-		Object.defineProperty(exports, "UUID", { enumerable: true, get: function () { return uuid_1.UUID; } });
-		var ProgressCallbackTransform_1 = ProgressCallbackTransform$1;
-		Object.defineProperty(exports, "ProgressCallbackTransform", { enumerable: true, get: function () { return ProgressCallbackTransform_1.ProgressCallbackTransform; } });
-		var xml_1 = requireXml();
-		Object.defineProperty(exports, "parseXml", { enumerable: true, get: function () { return xml_1.parseXml; } });
-		Object.defineProperty(exports, "XElement", { enumerable: true, get: function () { return xml_1.XElement; } });
-		// nsis
-		exports.CURRENT_APP_INSTALLER_FILE_NAME = "installer.exe";
-		// nsis-web
-		exports.CURRENT_APP_PACKAGE_FILE_NAME = "package.7z";
-		function asArray(v) {
-		    if (v == null) {
-		        return [];
-		    }
-		    else if (Array.isArray(v)) {
-		        return v;
-		    }
-		    else {
-		        return [v];
-		    }
-		}
-		exports.asArray = asArray;
-		function newError(message, code) {
-		    const error = new Error(message);
-		    error.code = code;
-		    return error;
-		}
-		exports.newError = newError;
+Object.defineProperty(MemoLazy$1, "__esModule", { value: true });
+MemoLazy$1.MemoLazy = void 0;
+class MemoLazy {
+    constructor(selector, creator) {
+        this.selector = selector;
+        this.creator = creator;
+        this.selected = undefined;
+        this._value = undefined;
+    }
+    get hasValue() {
+        return this._value !== undefined;
+    }
+    get value() {
+        const selected = this.selector();
+        if (this._value !== undefined && equals(this.selected, selected)) {
+            // value exists and selected hasn't changed, so return the cached value
+            return this._value;
+        }
+        this.selected = selected;
+        const result = this.creator(selected);
+        this.value = result;
+        return result;
+    }
+    set value(value) {
+        this._value = value;
+    }
+}
+MemoLazy$1.MemoLazy = MemoLazy;
+function equals(firstValue, secondValue) {
+    const isFirstObject = typeof firstValue === "object" && firstValue !== null;
+    const isSecondObject = typeof secondValue === "object" && secondValue !== null;
+    // do a shallow comparison of objects, arrays etc.
+    if (isFirstObject && isSecondObject) {
+        const keys1 = Object.keys(firstValue);
+        const keys2 = Object.keys(secondValue);
+        return keys1.length === keys2.length && keys1.every((key) => equals(firstValue[key], secondValue[key]));
+    }
+    // otherwise just compare the values directly
+    return firstValue === secondValue;
+}
 
+(function (exports) {
+	Object.defineProperty(exports, "__esModule", { value: true });
+	exports.CURRENT_APP_PACKAGE_FILE_NAME = exports.CURRENT_APP_INSTALLER_FILE_NAME = exports.MemoLazy = exports.newError = exports.XElement = exports.parseXml = exports.ProgressCallbackTransform = exports.UUID = exports.parseDn = exports.githubUrl = exports.getS3LikeProviderBaseUrl = exports.configureRequestUrl = exports.parseJson = exports.safeStringifyJson = exports.configureRequestOptionsFromUrl = exports.configureRequestOptions = exports.safeGetHeader = exports.DigestTransform = exports.HttpExecutor = exports.createHttpError = exports.HttpError = exports.CancellationError = exports.CancellationToken = void 0;
+	exports.asArray = asArray;
+	var CancellationToken_1 = CancellationToken$1;
+	Object.defineProperty(exports, "CancellationToken", { enumerable: true, get: function () { return CancellationToken_1.CancellationToken; } });
+	Object.defineProperty(exports, "CancellationError", { enumerable: true, get: function () { return CancellationToken_1.CancellationError; } });
+	var httpExecutor_1 = httpExecutor;
+	Object.defineProperty(exports, "HttpError", { enumerable: true, get: function () { return httpExecutor_1.HttpError; } });
+	Object.defineProperty(exports, "createHttpError", { enumerable: true, get: function () { return httpExecutor_1.createHttpError; } });
+	Object.defineProperty(exports, "HttpExecutor", { enumerable: true, get: function () { return httpExecutor_1.HttpExecutor; } });
+	Object.defineProperty(exports, "DigestTransform", { enumerable: true, get: function () { return httpExecutor_1.DigestTransform; } });
+	Object.defineProperty(exports, "safeGetHeader", { enumerable: true, get: function () { return httpExecutor_1.safeGetHeader; } });
+	Object.defineProperty(exports, "configureRequestOptions", { enumerable: true, get: function () { return httpExecutor_1.configureRequestOptions; } });
+	Object.defineProperty(exports, "configureRequestOptionsFromUrl", { enumerable: true, get: function () { return httpExecutor_1.configureRequestOptionsFromUrl; } });
+	Object.defineProperty(exports, "safeStringifyJson", { enumerable: true, get: function () { return httpExecutor_1.safeStringifyJson; } });
+	Object.defineProperty(exports, "parseJson", { enumerable: true, get: function () { return httpExecutor_1.parseJson; } });
+	Object.defineProperty(exports, "configureRequestUrl", { enumerable: true, get: function () { return httpExecutor_1.configureRequestUrl; } });
+	var publishOptions_1 = publishOptions;
+	Object.defineProperty(exports, "getS3LikeProviderBaseUrl", { enumerable: true, get: function () { return publishOptions_1.getS3LikeProviderBaseUrl; } });
+	Object.defineProperty(exports, "githubUrl", { enumerable: true, get: function () { return publishOptions_1.githubUrl; } });
+	var rfc2253Parser_1 = rfc2253Parser;
+	Object.defineProperty(exports, "parseDn", { enumerable: true, get: function () { return rfc2253Parser_1.parseDn; } });
+	var uuid_1 = uuid;
+	Object.defineProperty(exports, "UUID", { enumerable: true, get: function () { return uuid_1.UUID; } });
+	var ProgressCallbackTransform_1 = ProgressCallbackTransform$1;
+	Object.defineProperty(exports, "ProgressCallbackTransform", { enumerable: true, get: function () { return ProgressCallbackTransform_1.ProgressCallbackTransform; } });
+	var xml_1 = xml;
+	Object.defineProperty(exports, "parseXml", { enumerable: true, get: function () { return xml_1.parseXml; } });
+	Object.defineProperty(exports, "XElement", { enumerable: true, get: function () { return xml_1.XElement; } });
+	var error_1 = error;
+	Object.defineProperty(exports, "newError", { enumerable: true, get: function () { return error_1.newError; } });
+	var MemoLazy_1 = MemoLazy$1;
+	Object.defineProperty(exports, "MemoLazy", { enumerable: true, get: function () { return MemoLazy_1.MemoLazy; } });
+	// nsis
+	exports.CURRENT_APP_INSTALLER_FILE_NAME = "installer.exe";
+	// nsis-web
+	exports.CURRENT_APP_PACKAGE_FILE_NAME = "package.7z";
+	function asArray(v) {
+	    if (v == null) {
+	        return [];
+	    }
+	    else if (Array.isArray(v)) {
+	        return v;
+	    }
+	    else {
+	        return [v];
+	    }
+	}
+	
 } (out));
-	return out;
-}
 
 var fs$i = {};
 
@@ -3960,7 +4005,7 @@ universalify$1.fromPromise = function (fn) {
   }, 'name', { value: fn.name })
 };
 
-var constants$1 = require$$0$4;
+var constants$2 = require$$0$3;
 
 var origCwd = process.cwd;
 var cwd = null;
@@ -3986,14 +4031,14 @@ if (typeof process.chdir === 'function') {
   if (Object.setPrototypeOf) Object.setPrototypeOf(process.chdir, chdir);
 }
 
-var polyfills$1 = patch$1;
+var polyfills$1 = patch$3;
 
-function patch$1 (fs) {
+function patch$3 (fs) {
   // (re-)implement some things that are known busted or missing.
 
   // lchmod, broken prior to 0.6.2
   // back-port the fix here.
-  if (constants$1.hasOwnProperty('O_SYMLINK') &&
+  if (constants$2.hasOwnProperty('O_SYMLINK') &&
       process.version.match(/^v0\.6\.[0-2]|^v0\.5\./)) {
     patchLchmod(fs);
   }
@@ -4127,7 +4172,7 @@ function patch$1 (fs) {
   function patchLchmod (fs) {
     fs.lchmod = function (path, mode, callback) {
       fs.open( path
-             , constants$1.O_WRONLY | constants$1.O_SYMLINK
+             , constants$2.O_WRONLY | constants$2.O_SYMLINK
              , mode
              , function (err, fd) {
         if (err) {
@@ -4145,7 +4190,7 @@ function patch$1 (fs) {
     };
 
     fs.lchmodSync = function (path, mode) {
-      var fd = fs.openSync(path, constants$1.O_WRONLY | constants$1.O_SYMLINK, mode);
+      var fd = fs.openSync(path, constants$2.O_WRONLY | constants$2.O_SYMLINK, mode);
 
       // prefer to return the chmod error, if one occurs,
       // but still try to close, and report closing errors if they occur.
@@ -4168,9 +4213,9 @@ function patch$1 (fs) {
   }
 
   function patchLutimes (fs) {
-    if (constants$1.hasOwnProperty("O_SYMLINK") && fs.futimes) {
+    if (constants$2.hasOwnProperty("O_SYMLINK") && fs.futimes) {
       fs.lutimes = function (path, at, mt, cb) {
-        fs.open(path, constants$1.O_SYMLINK, function (er, fd) {
+        fs.open(path, constants$2.O_SYMLINK, function (er, fd) {
           if (er) {
             if (cb) cb(er);
             return
@@ -4184,7 +4229,7 @@ function patch$1 (fs) {
       };
 
       fs.lutimesSync = function (path, at, mt) {
-        var fd = fs.openSync(path, constants$1.O_SYMLINK);
+        var fd = fs.openSync(path, constants$2.O_SYMLINK);
         var ret;
         var threw = true;
         try {
@@ -4316,7 +4361,7 @@ function patch$1 (fs) {
   }
 }
 
-var Stream = require$$0$2.Stream;
+var Stream = require$$0$1.Stream;
 
 var legacyStreams = legacy$1;
 
@@ -4488,11 +4533,11 @@ function publishQueue(context, queue) {
   });
 }
 
-var debug = noop;
+var debug$2 = noop;
 if (util$2.debuglog)
-  debug = util$2.debuglog('gfs4');
+  debug$2 = util$2.debuglog('gfs4');
 else if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || ''))
-  debug = function() {
+  debug$2 = function() {
     var m = util$2.format.apply(util$2, arguments);
     m = 'GFS4: ' + m.split(/\n/).join('\nGFS4: ');
     console.error(m);
@@ -4542,7 +4587,7 @@ if (!fs$h[gracefulQueue]) {
 
   if (/\bgfs4\b/i.test(process.env.NODE_DEBUG || '')) {
     process.on('exit', function() {
-      debug(fs$h[gracefulQueue]);
+      debug$2(fs$h[gracefulQueue]);
       require$$5.equal(fs$h[gracefulQueue].length, 0);
     });
   }
@@ -4552,16 +4597,16 @@ if (!commonjsGlobal[gracefulQueue]) {
   publishQueue(commonjsGlobal, fs$h[gracefulQueue]);
 }
 
-var gracefulFs = patch(clone(fs$h));
+var gracefulFs = patch$2(clone(fs$h));
 if (process.env.TEST_GRACEFUL_FS_GLOBAL_PATCH && !fs$h.__patched) {
-    gracefulFs = patch(fs$h);
+    gracefulFs = patch$2(fs$h);
     fs$h.__patched = true;
 }
 
-function patch (fs) {
+function patch$2 (fs) {
   // Everything that references the open() function needs to be in here
   polyfills(fs);
-  fs.gracefulify = patch;
+  fs.gracefulify = patch$2;
 
   fs.createReadStream = createReadStream;
   fs.createWriteStream = createWriteStream;
@@ -4828,7 +4873,7 @@ function patch (fs) {
 }
 
 function enqueue (elem) {
-  debug('ENQUEUE', elem[0].name, elem[1]);
+  debug$2('ENQUEUE', elem[0].name, elem[1]);
   fs$h[gracefulQueue].push(elem);
   retry();
 }
@@ -4872,11 +4917,11 @@ function retry () {
   // if we don't have a startTime we have no way of knowing if we've waited
   // long enough, so go ahead and retry this item now
   if (startTime === undefined) {
-    debug('RETRY', fn.name, args);
+    debug$2('RETRY', fn.name, args);
     fn.apply(null, args);
   } else if (Date.now() - startTime >= 60000) {
     // it's been more than 60 seconds total, bail now
-    debug('TIMEOUT', fn.name, args);
+    debug$2('TIMEOUT', fn.name, args);
     var cb = args.pop();
     if (typeof cb === 'function')
       cb.call(null, err);
@@ -4891,7 +4936,7 @@ function retry () {
     var desiredDelay = Math.min(sinceStart * 1.2, 100);
     // it's been long enough since the last retry, do it again
     if (sinceAttempt >= desiredDelay) {
-      debug('RETRY', fn.name, args);
+      debug$2('RETRY', fn.name, args);
       fn.apply(null, args.concat([startTime]));
     } else {
       // if we can't do this job yet, push it to the end of the queue
@@ -5033,20 +5078,20 @@ function retry () {
 	    'fs.realpath.native is not a function. Is fs being monkey-patched?',
 	    'Warning', 'fs-extra-WARN0003'
 	  );
-	}
+	} 
 } (fs$i));
 
 var makeDir$1 = {};
 
 var utils$1 = {};
 
-const path$g = require$$1$4;
+const path$h = require$$1$4;
 
 // https://github.com/nodejs/node/issues/8987
 // https://github.com/libuv/libuv/pull/1088
 utils$1.checkPath = function checkPath (pth) {
   if (process.platform === 'win32') {
-    const pathHasInvalidWinCharacters = /[<>:"|?*]/.test(pth.replace(path$g.parse(pth).root, ''));
+    const pathHasInvalidWinCharacters = /[<>:"|?*]/.test(pth.replace(path$h.parse(pth).root, ''));
 
     if (pathHasInvalidWinCharacters) {
       const error = new Error(`Path contains invalid characters: ${pth}`);
@@ -5135,7 +5180,7 @@ var utimes = {
 };
 
 const fs$d = fs$i;
-const path$f = require$$1$4;
+const path$g = require$$1$4;
 const util$1 = require$$1$1;
 
 function getStats$2 (src, dest, opts) {
@@ -5173,8 +5218,8 @@ function checkPaths (src, dest, funcName, opts, cb) {
 
     if (destStat) {
       if (areIdentical$2(srcStat, destStat)) {
-        const srcBaseName = path$f.basename(src);
-        const destBaseName = path$f.basename(dest);
+        const srcBaseName = path$g.basename(src);
+        const destBaseName = path$g.basename(dest);
         if (funcName === 'move' &&
           srcBaseName !== destBaseName &&
           srcBaseName.toLowerCase() === destBaseName.toLowerCase()) {
@@ -5202,8 +5247,8 @@ function checkPathsSync (src, dest, funcName, opts) {
 
   if (destStat) {
     if (areIdentical$2(srcStat, destStat)) {
-      const srcBaseName = path$f.basename(src);
-      const destBaseName = path$f.basename(dest);
+      const srcBaseName = path$g.basename(src);
+      const destBaseName = path$g.basename(dest);
       if (funcName === 'move' &&
         srcBaseName !== destBaseName &&
         srcBaseName.toLowerCase() === destBaseName.toLowerCase()) {
@@ -5230,9 +5275,9 @@ function checkPathsSync (src, dest, funcName, opts) {
 // checks the src and dest inodes. It starts from the deepest
 // parent and stops once it reaches the src parent or the root path.
 function checkParentPaths (src, srcStat, dest, funcName, cb) {
-  const srcParent = path$f.resolve(path$f.dirname(src));
-  const destParent = path$f.resolve(path$f.dirname(dest));
-  if (destParent === srcParent || destParent === path$f.parse(destParent).root) return cb()
+  const srcParent = path$g.resolve(path$g.dirname(src));
+  const destParent = path$g.resolve(path$g.dirname(dest));
+  if (destParent === srcParent || destParent === path$g.parse(destParent).root) return cb()
   fs$d.stat(destParent, { bigint: true }, (err, destStat) => {
     if (err) {
       if (err.code === 'ENOENT') return cb()
@@ -5246,9 +5291,9 @@ function checkParentPaths (src, srcStat, dest, funcName, cb) {
 }
 
 function checkParentPathsSync (src, srcStat, dest, funcName) {
-  const srcParent = path$f.resolve(path$f.dirname(src));
-  const destParent = path$f.resolve(path$f.dirname(dest));
-  if (destParent === srcParent || destParent === path$f.parse(destParent).root) return
+  const srcParent = path$g.resolve(path$g.dirname(src));
+  const destParent = path$g.resolve(path$g.dirname(dest));
+  if (destParent === srcParent || destParent === path$g.parse(destParent).root) return
   let destStat;
   try {
     destStat = fs$d.statSync(destParent, { bigint: true });
@@ -5269,8 +5314,8 @@ function areIdentical$2 (srcStat, destStat) {
 // return true if dest is a subdir of src, otherwise false.
 // It only checks the path strings.
 function isSrcSubdir (src, dest) {
-  const srcArr = path$f.resolve(src).split(path$f.sep).filter(i => i);
-  const destArr = path$f.resolve(dest).split(path$f.sep).filter(i => i);
+  const srcArr = path$g.resolve(src).split(path$g.sep).filter(i => i);
+  const destArr = path$g.resolve(dest).split(path$g.sep).filter(i => i);
   return srcArr.reduce((acc, cur, i) => acc && destArr[i] === cur, true)
 }
 
@@ -5288,7 +5333,7 @@ var stat$4 = {
 };
 
 const fs$c = gracefulFs;
-const path$e = require$$1$4;
+const path$f = require$$1$4;
 const mkdirs$1 = mkdirs$2.mkdirs;
 const pathExists$5 = pathExists_1.pathExists;
 const utimesMillis = utimes.utimesMillis;
@@ -5329,7 +5374,7 @@ function copy$2 (src, dest, opts, cb) {
 }
 
 function checkParentDir (destStat, src, dest, opts, cb) {
-  const destParent = path$e.dirname(dest);
+  const destParent = path$f.dirname(dest);
   pathExists$5(destParent, (err, dirExists) => {
     if (err) return cb(err)
     if (dirExists) return getStats$1(destStat, src, dest, opts, cb)
@@ -5463,8 +5508,8 @@ function copyDirItems (items, src, dest, opts, cb) {
 }
 
 function copyDirItem$1 (items, item, src, dest, opts, cb) {
-  const srcItem = path$e.join(src, item);
-  const destItem = path$e.join(dest, item);
+  const srcItem = path$f.join(src, item);
+  const destItem = path$f.join(dest, item);
   stat$3.checkPaths(srcItem, destItem, 'copy', opts, (err, stats) => {
     if (err) return cb(err)
     const { destStat } = stats;
@@ -5479,7 +5524,7 @@ function onLink$1 (destStat, src, dest, opts, cb) {
   fs$c.readlink(src, (err, resolvedSrc) => {
     if (err) return cb(err)
     if (opts.dereference) {
-      resolvedSrc = path$e.resolve(process.cwd(), resolvedSrc);
+      resolvedSrc = path$f.resolve(process.cwd(), resolvedSrc);
     }
 
     if (!destStat) {
@@ -5494,7 +5539,7 @@ function onLink$1 (destStat, src, dest, opts, cb) {
           return cb(err)
         }
         if (opts.dereference) {
-          resolvedDest = path$e.resolve(process.cwd(), resolvedDest);
+          resolvedDest = path$f.resolve(process.cwd(), resolvedDest);
         }
         if (stat$3.isSrcSubdir(resolvedSrc, resolvedDest)) {
           return cb(new Error(`Cannot copy '${resolvedSrc}' to a subdirectory of itself, '${resolvedDest}'.`))
@@ -5522,7 +5567,7 @@ function copyLink$1 (resolvedSrc, dest, cb) {
 var copy_1 = copy$2;
 
 const fs$b = gracefulFs;
-const path$d = require$$1$4;
+const path$e = require$$1$4;
 const mkdirsSync$1 = mkdirs$2.mkdirsSync;
 const utimesMillisSync = utimes.utimesMillisSync;
 const stat$2 = stat$4;
@@ -5552,7 +5597,7 @@ function copySync$1 (src, dest, opts) {
 
 function handleFilterAndCopy (destStat, src, dest, opts) {
   if (opts.filter && !opts.filter(src, dest)) return
-  const destParent = path$d.dirname(dest);
+  const destParent = path$e.dirname(dest);
   if (!fs$b.existsSync(destParent)) mkdirsSync$1(destParent);
   return getStats(destStat, src, dest, opts)
 }
@@ -5640,8 +5685,8 @@ function copyDir (src, dest, opts) {
 }
 
 function copyDirItem (item, src, dest, opts) {
-  const srcItem = path$d.join(src, item);
-  const destItem = path$d.join(dest, item);
+  const srcItem = path$e.join(src, item);
+  const destItem = path$e.join(dest, item);
   const { destStat } = stat$2.checkPathsSync(srcItem, destItem, 'copy', opts);
   return startCopy(destStat, srcItem, destItem, opts)
 }
@@ -5649,7 +5694,7 @@ function copyDirItem (item, src, dest, opts) {
 function onLink (destStat, src, dest, opts) {
   let resolvedSrc = fs$b.readlinkSync(src);
   if (opts.dereference) {
-    resolvedSrc = path$d.resolve(process.cwd(), resolvedSrc);
+    resolvedSrc = path$e.resolve(process.cwd(), resolvedSrc);
   }
 
   if (!destStat) {
@@ -5666,7 +5711,7 @@ function onLink (destStat, src, dest, opts) {
       throw err
     }
     if (opts.dereference) {
-      resolvedDest = path$d.resolve(process.cwd(), resolvedDest);
+      resolvedDest = path$e.resolve(process.cwd(), resolvedDest);
     }
     if (stat$2.isSrcSubdir(resolvedSrc, resolvedDest)) {
       throw new Error(`Cannot copy '${resolvedSrc}' to a subdirectory of itself, '${resolvedDest}'.`)
@@ -5696,7 +5741,7 @@ var copy$1 = {
 };
 
 const fs$a = gracefulFs;
-const path$c = require$$1$4;
+const path$d = require$$1$4;
 const assert = require$$5;
 
 const isWindows = (process.platform === 'win32');
@@ -5892,7 +5937,7 @@ function rmkids (p, options, cb) {
     if (n === 0) return options.rmdir(p, cb)
 
     files.forEach(f => {
-      rimraf$1(path$c.join(p, f), options, er => {
+      rimraf$1(path$d.join(p, f), options, er => {
         if (errState) {
           return
         }
@@ -5971,7 +6016,7 @@ function rmdirSync (p, options, originalEr) {
 function rmkidsSync (p, options) {
   assert(p);
   assert(options);
-  options.readdirSync(p).forEach(f => rimrafSync(path$c.join(p, f), options));
+  options.readdirSync(p).forEach(f => rimrafSync(path$d.join(p, f), options));
 
   if (isWindows) {
     // We only end up here once we got ENOTEMPTY at least once, and
@@ -6019,7 +6064,7 @@ var remove_1 = {
 
 const u$6 = universalify$1.fromPromise;
 const fs$8 = fs$i;
-const path$b = require$$1$4;
+const path$c = require$$1$4;
 const mkdir$3 = mkdirs$2;
 const remove$1 = remove_1;
 
@@ -6031,7 +6076,7 @@ const emptyDir = u$6(async function emptyDir (dir) {
     return mkdir$3.mkdirs(dir)
   }
 
-  return Promise.all(items.map(item => remove$1.remove(path$b.join(dir, item))))
+  return Promise.all(items.map(item => remove$1.remove(path$c.join(dir, item))))
 });
 
 function emptyDirSync (dir) {
@@ -6043,7 +6088,7 @@ function emptyDirSync (dir) {
   }
 
   items.forEach(item => {
-    item = path$b.join(dir, item);
+    item = path$c.join(dir, item);
     remove$1.removeSync(item);
   });
 }
@@ -6056,7 +6101,7 @@ var empty = {
 };
 
 const u$5 = universalify$1.fromCallback;
-const path$a = require$$1$4;
+const path$b = require$$1$4;
 const fs$7 = gracefulFs;
 const mkdir$2 = mkdirs$2;
 
@@ -6070,7 +6115,7 @@ function createFile$1 (file, callback) {
 
   fs$7.stat(file, (err, stats) => { // eslint-disable-line handle-callback-err
     if (!err && stats.isFile()) return callback()
-    const dir = path$a.dirname(file);
+    const dir = path$b.dirname(file);
     fs$7.stat(dir, (err, stats) => {
       if (err) {
         // if the directory doesn't exist, make it
@@ -6102,7 +6147,7 @@ function createFileSync$1 (file) {
   } catch {}
   if (stats && stats.isFile()) return
 
-  const dir = path$a.dirname(file);
+  const dir = path$b.dirname(file);
   try {
     if (!fs$7.statSync(dir).isDirectory()) {
       // parent is not a directory
@@ -6124,7 +6169,7 @@ var file = {
 };
 
 const u$4 = universalify$1.fromCallback;
-const path$9 = require$$1$4;
+const path$a = require$$1$4;
 const fs$6 = gracefulFs;
 const mkdir$1 = mkdirs$2;
 const pathExists$4 = pathExists_1.pathExists;
@@ -6146,7 +6191,7 @@ function createLink$1 (srcpath, dstpath, callback) {
       }
       if (dstStat && areIdentical$1(srcStat, dstStat)) return callback(null)
 
-      const dir = path$9.dirname(dstpath);
+      const dir = path$a.dirname(dstpath);
       pathExists$4(dir, (err, dirExists) => {
         if (err) return callback(err)
         if (dirExists) return makeLink(srcpath, dstpath)
@@ -6173,7 +6218,7 @@ function createLinkSync$1 (srcpath, dstpath) {
     throw err
   }
 
-  const dir = path$9.dirname(dstpath);
+  const dir = path$a.dirname(dstpath);
   const dirExists = fs$6.existsSync(dir);
   if (dirExists) return fs$6.linkSync(srcpath, dstpath)
   mkdir$1.mkdirsSync(dir);
@@ -6186,7 +6231,7 @@ var link = {
   createLinkSync: createLinkSync$1
 };
 
-const path$8 = require$$1$4;
+const path$9 = require$$1$4;
 const fs$5 = gracefulFs;
 const pathExists$3 = pathExists_1.pathExists;
 
@@ -6213,7 +6258,7 @@ const pathExists$3 = pathExists_1.pathExists;
  */
 
 function symlinkPaths$1 (srcpath, dstpath, callback) {
-  if (path$8.isAbsolute(srcpath)) {
+  if (path$9.isAbsolute(srcpath)) {
     return fs$5.lstat(srcpath, (err) => {
       if (err) {
         err.message = err.message.replace('lstat', 'ensureSymlink');
@@ -6225,8 +6270,8 @@ function symlinkPaths$1 (srcpath, dstpath, callback) {
       })
     })
   } else {
-    const dstdir = path$8.dirname(dstpath);
-    const relativeToDst = path$8.join(dstdir, srcpath);
+    const dstdir = path$9.dirname(dstpath);
+    const relativeToDst = path$9.join(dstdir, srcpath);
     return pathExists$3(relativeToDst, (err, exists) => {
       if (err) return callback(err)
       if (exists) {
@@ -6242,7 +6287,7 @@ function symlinkPaths$1 (srcpath, dstpath, callback) {
           }
           return callback(null, {
             toCwd: srcpath,
-            toDst: path$8.relative(dstdir, srcpath)
+            toDst: path$9.relative(dstdir, srcpath)
           })
         })
       }
@@ -6252,7 +6297,7 @@ function symlinkPaths$1 (srcpath, dstpath, callback) {
 
 function symlinkPathsSync$1 (srcpath, dstpath) {
   let exists;
-  if (path$8.isAbsolute(srcpath)) {
+  if (path$9.isAbsolute(srcpath)) {
     exists = fs$5.existsSync(srcpath);
     if (!exists) throw new Error('absolute srcpath does not exist')
     return {
@@ -6260,8 +6305,8 @@ function symlinkPathsSync$1 (srcpath, dstpath) {
       toDst: srcpath
     }
   } else {
-    const dstdir = path$8.dirname(dstpath);
-    const relativeToDst = path$8.join(dstdir, srcpath);
+    const dstdir = path$9.dirname(dstpath);
+    const relativeToDst = path$9.join(dstdir, srcpath);
     exists = fs$5.existsSync(relativeToDst);
     if (exists) {
       return {
@@ -6273,7 +6318,7 @@ function symlinkPathsSync$1 (srcpath, dstpath) {
       if (!exists) throw new Error('relative srcpath does not exist')
       return {
         toCwd: srcpath,
-        toDst: path$8.relative(dstdir, srcpath)
+        toDst: path$9.relative(dstdir, srcpath)
       }
     }
   }
@@ -6315,7 +6360,7 @@ var symlinkType_1 = {
 };
 
 const u$3 = universalify$1.fromCallback;
-const path$7 = require$$1$4;
+const path$8 = require$$1$4;
 const fs$3 = fs$i;
 const _mkdirs = mkdirs$2;
 const mkdirs = _mkdirs.mkdirs;
@@ -6356,7 +6401,7 @@ function _createSymlink (srcpath, dstpath, type, callback) {
     srcpath = relative.toDst;
     symlinkType(relative.toCwd, type, (err, type) => {
       if (err) return callback(err)
-      const dir = path$7.dirname(dstpath);
+      const dir = path$8.dirname(dstpath);
       pathExists$2(dir, (err, dirExists) => {
         if (err) return callback(err)
         if (dirExists) return fs$3.symlink(srcpath, dstpath, type, callback)
@@ -6383,7 +6428,7 @@ function createSymlinkSync$1 (srcpath, dstpath, type) {
   const relative = symlinkPathsSync(srcpath, dstpath);
   srcpath = relative.toDst;
   type = symlinkTypeSync(relative.toCwd, type);
-  const dir = path$7.dirname(dstpath);
+  const dir = path$8.dirname(dstpath);
   const exists = fs$3.existsSync(dir);
   if (exists) return fs$3.symlinkSync(srcpath, dstpath, type)
   mkdirsSync(dir);
@@ -6533,7 +6578,7 @@ var jsonfile = {
 
 const u$2 = universalify$1.fromCallback;
 const fs$2 = gracefulFs;
-const path$6 = require$$1$4;
+const path$7 = require$$1$4;
 const mkdir = mkdirs$2;
 const pathExists$1 = pathExists_1.pathExists;
 
@@ -6543,7 +6588,7 @@ function outputFile$1 (file, data, encoding, callback) {
     encoding = 'utf8';
   }
 
-  const dir = path$6.dirname(file);
+  const dir = path$7.dirname(file);
   pathExists$1(dir, (err, itDoes) => {
     if (err) return callback(err)
     if (itDoes) return fs$2.writeFile(file, data, encoding, callback)
@@ -6557,7 +6602,7 @@ function outputFile$1 (file, data, encoding, callback) {
 }
 
 function outputFileSync$1 (file, ...args) {
-  const dir = path$6.dirname(file);
+  const dir = path$7.dirname(file);
   if (fs$2.existsSync(dir)) {
     return fs$2.writeFileSync(file, ...args)
   }
@@ -6608,7 +6653,7 @@ jsonFile.readJSONSync = jsonFile.readJsonSync;
 var json$1 = jsonFile;
 
 const fs$1 = gracefulFs;
-const path$5 = require$$1$4;
+const path$6 = require$$1$4;
 const copy = copy$1.copy;
 const remove = remove_1.remove;
 const mkdirp = mkdirs$2.mkdirp;
@@ -6631,7 +6676,7 @@ function move$1 (src, dest, opts, cb) {
     stat$1.checkParentPaths(src, srcStat, dest, 'move', err => {
       if (err) return cb(err)
       if (isParentRoot$1(dest)) return doRename$1(src, dest, overwrite, isChangingCase, cb)
-      mkdirp(path$5.dirname(dest), err => {
+      mkdirp(path$6.dirname(dest), err => {
         if (err) return cb(err)
         return doRename$1(src, dest, overwrite, isChangingCase, cb)
       });
@@ -6640,8 +6685,8 @@ function move$1 (src, dest, opts, cb) {
 }
 
 function isParentRoot$1 (dest) {
-  const parent = path$5.dirname(dest);
-  const parsedPath = path$5.parse(parent);
+  const parent = path$6.dirname(dest);
+  const parsedPath = path$6.parse(parent);
   return parsedPath.root === parent
 }
 
@@ -6682,7 +6727,7 @@ function moveAcrossDevice$1 (src, dest, overwrite, cb) {
 var move_1 = move$1;
 
 const fs = gracefulFs;
-const path$4 = require$$1$4;
+const path$5 = require$$1$4;
 const copySync = copy$1.copySync;
 const removeSync = remove_1.removeSync;
 const mkdirpSync = mkdirs$2.mkdirpSync;
@@ -6694,13 +6739,13 @@ function moveSync (src, dest, opts) {
 
   const { srcStat, isChangingCase = false } = stat.checkPathsSync(src, dest, 'move', opts);
   stat.checkParentPathsSync(src, srcStat, dest, 'move');
-  if (!isParentRoot(dest)) mkdirpSync(path$4.dirname(dest));
+  if (!isParentRoot(dest)) mkdirpSync(path$5.dirname(dest));
   return doRename(src, dest, overwrite, isChangingCase)
 }
 
 function isParentRoot (dest) {
-  const parent = path$4.dirname(dest);
-  const parsedPath = path$4.parse(parent);
+  const parent = path$5.dirname(dest);
+  const parsedPath = path$5.parse(parent);
   return parsedPath.root === parent
 }
 
@@ -6754,6 +6799,8 @@ var lib = {
   ...pathExists_1,
   ...remove_1
 };
+
+var BaseUpdater = {};
 
 var AppUpdater = {};
 
@@ -6969,12 +7016,6 @@ function makeSnippet$1(mark, options) {
 
 
 var snippet = makeSnippet$1;
-
-var coreExports = {};
-var core = {
-  get exports(){ return coreExports; },
-  set exports(v){ coreExports = v; },
-};
 
 var YAMLException$3 = exception;
 
@@ -7521,11 +7562,7 @@ var json = failsafe.extend({
   ]
 });
 
-(function (module) {
-
-
-	module.exports = json;
-} (core));
+var core = json;
 
 var Type$5 = type;
 
@@ -7872,7 +7909,7 @@ var set = new Type('tag:yaml.org,2002:set', {
   construct: constructYamlSet
 });
 
-var _default = coreExports.extend({
+var _default = core.extend({
   implicit: [
     timestamp,
     merge
@@ -10593,7 +10630,7 @@ jsYaml.Type                = type;
 jsYaml.Schema              = schema;
 jsYaml.FAILSAFE_SCHEMA     = failsafe;
 jsYaml.JSON_SCHEMA         = json;
-jsYaml.CORE_SCHEMA         = coreExports;
+jsYaml.CORE_SCHEMA         = core;
 jsYaml.DEFAULT_SCHEMA      = _default;
 jsYaml.load                = loader.load;
 jsYaml.loadAll             = loader.loadAll;
@@ -10624,1967 +10661,988 @@ jsYaml.safeDump            = renamed('safeDump', 'dump');
 
 var main$1 = {};
 
-var hasRequiredMain$1;
-
-function requireMain$1 () {
-	if (hasRequiredMain$1) return main$1;
-	hasRequiredMain$1 = 1;
-	Object.defineProperty(main$1, "__esModule", { value: true });
-	main$1.Lazy = void 0;
-	class Lazy {
-	    constructor(creator) {
-	        this._value = null;
-	        this.creator = creator;
-	    }
-	    get hasValue() {
-	        return this.creator == null;
-	    }
-	    get value() {
-	        if (this.creator == null) {
-	            return this._value;
-	        }
-	        const result = this.creator();
-	        this.value = result;
-	        return result;
-	    }
-	    set value(value) {
-	        this._value = value;
-	        this.creator = null;
-	    }
-	}
-	main$1.Lazy = Lazy;
-
-	return main$1;
+Object.defineProperty(main$1, "__esModule", { value: true });
+main$1.Lazy = void 0;
+class Lazy {
+    constructor(creator) {
+        this._value = null;
+        this.creator = creator;
+    }
+    get hasValue() {
+        return this.creator == null;
+    }
+    get value() {
+        if (this.creator == null) {
+            return this._value;
+        }
+        const result = this.creator();
+        this.value = result;
+        return result;
+    }
+    set value(value) {
+        this._value = value;
+        this.creator = null;
+    }
 }
+main$1.Lazy = Lazy;
 
-var reExports = {};
-var re = {
-  get exports(){ return reExports; },
-  set exports(v){ reExports = v; },
+var re$2 = {exports: {}};
+
+// Note: this is the semver.org version of the spec that it implements
+// Not necessarily the package version of this code.
+const SEMVER_SPEC_VERSION = '2.0.0';
+
+const MAX_LENGTH$1 = 256;
+const MAX_SAFE_INTEGER$1 = Number.MAX_SAFE_INTEGER ||
+/* istanbul ignore next */ 9007199254740991;
+
+// Max safe segment length for coercion.
+const MAX_SAFE_COMPONENT_LENGTH = 16;
+
+// Max safe length for a build identifier. The max length minus 6 characters for
+// the shortest version with a build 0.0.0+BUILD.
+const MAX_SAFE_BUILD_LENGTH = MAX_LENGTH$1 - 6;
+
+const RELEASE_TYPES = [
+  'major',
+  'premajor',
+  'minor',
+  'preminor',
+  'patch',
+  'prepatch',
+  'prerelease',
+];
+
+var constants$1 = {
+  MAX_LENGTH: MAX_LENGTH$1,
+  MAX_SAFE_COMPONENT_LENGTH,
+  MAX_SAFE_BUILD_LENGTH,
+  MAX_SAFE_INTEGER: MAX_SAFE_INTEGER$1,
+  RELEASE_TYPES,
+  SEMVER_SPEC_VERSION,
+  FLAG_INCLUDE_PRERELEASE: 0b001,
+  FLAG_LOOSE: 0b010,
 };
 
-var constants;
-var hasRequiredConstants;
+const debug$1 = (
+  typeof process === 'object' &&
+  process.env &&
+  process.env.NODE_DEBUG &&
+  /\bsemver\b/i.test(process.env.NODE_DEBUG)
+) ? (...args) => console.error('SEMVER', ...args)
+  : () => {};
 
-function requireConstants () {
-	if (hasRequiredConstants) return constants;
-	hasRequiredConstants = 1;
-	// Note: this is the semver.org version of the spec that it implements
-	// Not necessarily the package version of this code.
-	const SEMVER_SPEC_VERSION = '2.0.0';
+var debug_1 = debug$1;
 
-	const MAX_LENGTH = 256;
-	const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER ||
-	/* istanbul ignore next */ 9007199254740991;
-
-	// Max safe segment length for coercion.
-	const MAX_SAFE_COMPONENT_LENGTH = 16;
-
-	// Max safe length for a build identifier. The max length minus 6 characters for
-	// the shortest version with a build 0.0.0+BUILD.
-	const MAX_SAFE_BUILD_LENGTH = MAX_LENGTH - 6;
-
-	const RELEASE_TYPES = [
-	  'major',
-	  'premajor',
-	  'minor',
-	  'preminor',
-	  'patch',
-	  'prepatch',
-	  'prerelease',
-	];
-
-	constants = {
-	  MAX_LENGTH,
+(function (module, exports) {
+	const {
 	  MAX_SAFE_COMPONENT_LENGTH,
 	  MAX_SAFE_BUILD_LENGTH,
-	  MAX_SAFE_INTEGER,
-	  RELEASE_TYPES,
-	  SEMVER_SPEC_VERSION,
-	  FLAG_INCLUDE_PRERELEASE: 0b001,
-	  FLAG_LOOSE: 0b010,
+	  MAX_LENGTH,
+	} = constants$1;
+	const debug = debug_1;
+	exports = module.exports = {};
+
+	// The actual regexps go on exports.re
+	const re = exports.re = [];
+	const safeRe = exports.safeRe = [];
+	const src = exports.src = [];
+	const t = exports.t = {};
+	let R = 0;
+
+	const LETTERDASHNUMBER = '[a-zA-Z0-9-]';
+
+	// Replace some greedy regex tokens to prevent regex dos issues. These regex are
+	// used internally via the safeRe object since all inputs in this library get
+	// normalized first to trim and collapse all extra whitespace. The original
+	// regexes are exported for userland consumption and lower level usage. A
+	// future breaking change could export the safer regex only with a note that
+	// all input should have extra whitespace removed.
+	const safeRegexReplacements = [
+	  ['\\s', 1],
+	  ['\\d', MAX_LENGTH],
+	  [LETTERDASHNUMBER, MAX_SAFE_BUILD_LENGTH],
+	];
+
+	const makeSafeRegex = (value) => {
+	  for (const [token, max] of safeRegexReplacements) {
+	    value = value
+	      .split(`${token}*`).join(`${token}{0,${max}}`)
+	      .split(`${token}+`).join(`${token}{1,${max}}`);
+	  }
+	  return value
 	};
-	return constants;
+
+	const createToken = (name, value, isGlobal) => {
+	  const safe = makeSafeRegex(value);
+	  const index = R++;
+	  debug(name, index, value);
+	  t[name] = index;
+	  src[index] = value;
+	  re[index] = new RegExp(value, isGlobal ? 'g' : undefined);
+	  safeRe[index] = new RegExp(safe, isGlobal ? 'g' : undefined);
+	};
+
+	// The following Regular Expressions can be used for tokenizing,
+	// validating, and parsing SemVer version strings.
+
+	// ## Numeric Identifier
+	// A single `0`, or a non-zero digit followed by zero or more digits.
+
+	createToken('NUMERICIDENTIFIER', '0|[1-9]\\d*');
+	createToken('NUMERICIDENTIFIERLOOSE', '\\d+');
+
+	// ## Non-numeric Identifier
+	// Zero or more digits, followed by a letter or hyphen, and then zero or
+	// more letters, digits, or hyphens.
+
+	createToken('NONNUMERICIDENTIFIER', `\\d*[a-zA-Z-]${LETTERDASHNUMBER}*`);
+
+	// ## Main Version
+	// Three dot-separated numeric identifiers.
+
+	createToken('MAINVERSION', `(${src[t.NUMERICIDENTIFIER]})\\.` +
+	                   `(${src[t.NUMERICIDENTIFIER]})\\.` +
+	                   `(${src[t.NUMERICIDENTIFIER]})`);
+
+	createToken('MAINVERSIONLOOSE', `(${src[t.NUMERICIDENTIFIERLOOSE]})\\.` +
+	                        `(${src[t.NUMERICIDENTIFIERLOOSE]})\\.` +
+	                        `(${src[t.NUMERICIDENTIFIERLOOSE]})`);
+
+	// ## Pre-release Version Identifier
+	// A numeric identifier, or a non-numeric identifier.
+
+	createToken('PRERELEASEIDENTIFIER', `(?:${src[t.NUMERICIDENTIFIER]
+	}|${src[t.NONNUMERICIDENTIFIER]})`);
+
+	createToken('PRERELEASEIDENTIFIERLOOSE', `(?:${src[t.NUMERICIDENTIFIERLOOSE]
+	}|${src[t.NONNUMERICIDENTIFIER]})`);
+
+	// ## Pre-release Version
+	// Hyphen, followed by one or more dot-separated pre-release version
+	// identifiers.
+
+	createToken('PRERELEASE', `(?:-(${src[t.PRERELEASEIDENTIFIER]
+	}(?:\\.${src[t.PRERELEASEIDENTIFIER]})*))`);
+
+	createToken('PRERELEASELOOSE', `(?:-?(${src[t.PRERELEASEIDENTIFIERLOOSE]
+	}(?:\\.${src[t.PRERELEASEIDENTIFIERLOOSE]})*))`);
+
+	// ## Build Metadata Identifier
+	// Any combination of digits, letters, or hyphens.
+
+	createToken('BUILDIDENTIFIER', `${LETTERDASHNUMBER}+`);
+
+	// ## Build Metadata
+	// Plus sign, followed by one or more period-separated build metadata
+	// identifiers.
+
+	createToken('BUILD', `(?:\\+(${src[t.BUILDIDENTIFIER]
+	}(?:\\.${src[t.BUILDIDENTIFIER]})*))`);
+
+	// ## Full Version String
+	// A main version, followed optionally by a pre-release version and
+	// build metadata.
+
+	// Note that the only major, minor, patch, and pre-release sections of
+	// the version string are capturing groups.  The build metadata is not a
+	// capturing group, because it should not ever be used in version
+	// comparison.
+
+	createToken('FULLPLAIN', `v?${src[t.MAINVERSION]
+	}${src[t.PRERELEASE]}?${
+	  src[t.BUILD]}?`);
+
+	createToken('FULL', `^${src[t.FULLPLAIN]}$`);
+
+	// like full, but allows v1.2.3 and =1.2.3, which people do sometimes.
+	// also, 1.0.0alpha1 (prerelease without the hyphen) which is pretty
+	// common in the npm registry.
+	createToken('LOOSEPLAIN', `[v=\\s]*${src[t.MAINVERSIONLOOSE]
+	}${src[t.PRERELEASELOOSE]}?${
+	  src[t.BUILD]}?`);
+
+	createToken('LOOSE', `^${src[t.LOOSEPLAIN]}$`);
+
+	createToken('GTLT', '((?:<|>)?=?)');
+
+	// Something like "2.*" or "1.2.x".
+	// Note that "x.x" is a valid xRange identifer, meaning "any version"
+	// Only the first item is strictly required.
+	createToken('XRANGEIDENTIFIERLOOSE', `${src[t.NUMERICIDENTIFIERLOOSE]}|x|X|\\*`);
+	createToken('XRANGEIDENTIFIER', `${src[t.NUMERICIDENTIFIER]}|x|X|\\*`);
+
+	createToken('XRANGEPLAIN', `[v=\\s]*(${src[t.XRANGEIDENTIFIER]})` +
+	                   `(?:\\.(${src[t.XRANGEIDENTIFIER]})` +
+	                   `(?:\\.(${src[t.XRANGEIDENTIFIER]})` +
+	                   `(?:${src[t.PRERELEASE]})?${
+	                     src[t.BUILD]}?` +
+	                   `)?)?`);
+
+	createToken('XRANGEPLAINLOOSE', `[v=\\s]*(${src[t.XRANGEIDENTIFIERLOOSE]})` +
+	                        `(?:\\.(${src[t.XRANGEIDENTIFIERLOOSE]})` +
+	                        `(?:\\.(${src[t.XRANGEIDENTIFIERLOOSE]})` +
+	                        `(?:${src[t.PRERELEASELOOSE]})?${
+	                          src[t.BUILD]}?` +
+	                        `)?)?`);
+
+	createToken('XRANGE', `^${src[t.GTLT]}\\s*${src[t.XRANGEPLAIN]}$`);
+	createToken('XRANGELOOSE', `^${src[t.GTLT]}\\s*${src[t.XRANGEPLAINLOOSE]}$`);
+
+	// Coercion.
+	// Extract anything that could conceivably be a part of a valid semver
+	createToken('COERCEPLAIN', `${'(^|[^\\d])' +
+	              '(\\d{1,'}${MAX_SAFE_COMPONENT_LENGTH}})` +
+	              `(?:\\.(\\d{1,${MAX_SAFE_COMPONENT_LENGTH}}))?` +
+	              `(?:\\.(\\d{1,${MAX_SAFE_COMPONENT_LENGTH}}))?`);
+	createToken('COERCE', `${src[t.COERCEPLAIN]}(?:$|[^\\d])`);
+	createToken('COERCEFULL', src[t.COERCEPLAIN] +
+	              `(?:${src[t.PRERELEASE]})?` +
+	              `(?:${src[t.BUILD]})?` +
+	              `(?:$|[^\\d])`);
+	createToken('COERCERTL', src[t.COERCE], true);
+	createToken('COERCERTLFULL', src[t.COERCEFULL], true);
+
+	// Tilde ranges.
+	// Meaning is "reasonably at or greater than"
+	createToken('LONETILDE', '(?:~>?)');
+
+	createToken('TILDETRIM', `(\\s*)${src[t.LONETILDE]}\\s+`, true);
+	exports.tildeTrimReplace = '$1~';
+
+	createToken('TILDE', `^${src[t.LONETILDE]}${src[t.XRANGEPLAIN]}$`);
+	createToken('TILDELOOSE', `^${src[t.LONETILDE]}${src[t.XRANGEPLAINLOOSE]}$`);
+
+	// Caret ranges.
+	// Meaning is "at least and backwards compatible with"
+	createToken('LONECARET', '(?:\\^)');
+
+	createToken('CARETTRIM', `(\\s*)${src[t.LONECARET]}\\s+`, true);
+	exports.caretTrimReplace = '$1^';
+
+	createToken('CARET', `^${src[t.LONECARET]}${src[t.XRANGEPLAIN]}$`);
+	createToken('CARETLOOSE', `^${src[t.LONECARET]}${src[t.XRANGEPLAINLOOSE]}$`);
+
+	// A simple gt/lt/eq thing, or just "" to indicate "any version"
+	createToken('COMPARATORLOOSE', `^${src[t.GTLT]}\\s*(${src[t.LOOSEPLAIN]})$|^$`);
+	createToken('COMPARATOR', `^${src[t.GTLT]}\\s*(${src[t.FULLPLAIN]})$|^$`);
+
+	// An expression to strip any whitespace between the gtlt and the thing
+	// it modifies, so that `> 1.2.3` ==> `>1.2.3`
+	createToken('COMPARATORTRIM', `(\\s*)${src[t.GTLT]
+	}\\s*(${src[t.LOOSEPLAIN]}|${src[t.XRANGEPLAIN]})`, true);
+	exports.comparatorTrimReplace = '$1$2$3';
+
+	// Something like `1.2.3 - 1.2.4`
+	// Note that these all use the loose form, because they'll be
+	// checked against either the strict or loose comparator form
+	// later.
+	createToken('HYPHENRANGE', `^\\s*(${src[t.XRANGEPLAIN]})` +
+	                   `\\s+-\\s+` +
+	                   `(${src[t.XRANGEPLAIN]})` +
+	                   `\\s*$`);
+
+	createToken('HYPHENRANGELOOSE', `^\\s*(${src[t.XRANGEPLAINLOOSE]})` +
+	                        `\\s+-\\s+` +
+	                        `(${src[t.XRANGEPLAINLOOSE]})` +
+	                        `\\s*$`);
+
+	// Star ranges basically just allow anything at all.
+	createToken('STAR', '(<|>)?=?\\s*\\*');
+	// >=0.0.0 is like a star
+	createToken('GTE0', '^\\s*>=\\s*0\\.0\\.0\\s*$');
+	createToken('GTE0PRE', '^\\s*>=\\s*0\\.0\\.0-0\\s*$'); 
+} (re$2, re$2.exports));
+
+var reExports = re$2.exports;
+
+// parse out just the options we care about
+const looseOption = Object.freeze({ loose: true });
+const emptyOpts = Object.freeze({ });
+const parseOptions$1 = options => {
+  if (!options) {
+    return emptyOpts
+  }
+
+  if (typeof options !== 'object') {
+    return looseOption
+  }
+
+  return options
+};
+var parseOptions_1 = parseOptions$1;
+
+const numeric = /^[0-9]+$/;
+const compareIdentifiers$1 = (a, b) => {
+  const anum = numeric.test(a);
+  const bnum = numeric.test(b);
+
+  if (anum && bnum) {
+    a = +a;
+    b = +b;
+  }
+
+  return a === b ? 0
+    : (anum && !bnum) ? -1
+    : (bnum && !anum) ? 1
+    : a < b ? -1
+    : 1
+};
+
+const rcompareIdentifiers = (a, b) => compareIdentifiers$1(b, a);
+
+var identifiers$1 = {
+  compareIdentifiers: compareIdentifiers$1,
+  rcompareIdentifiers,
+};
+
+const debug = debug_1;
+const { MAX_LENGTH, MAX_SAFE_INTEGER } = constants$1;
+const { safeRe: re$1, t: t$1 } = reExports;
+
+const parseOptions = parseOptions_1;
+const { compareIdentifiers } = identifiers$1;
+let SemVer$d = class SemVer {
+  constructor (version, options) {
+    options = parseOptions(options);
+
+    if (version instanceof SemVer) {
+      if (version.loose === !!options.loose &&
+          version.includePrerelease === !!options.includePrerelease) {
+        return version
+      } else {
+        version = version.version;
+      }
+    } else if (typeof version !== 'string') {
+      throw new TypeError(`Invalid version. Must be a string. Got type "${typeof version}".`)
+    }
+
+    if (version.length > MAX_LENGTH) {
+      throw new TypeError(
+        `version is longer than ${MAX_LENGTH} characters`
+      )
+    }
+
+    debug('SemVer', version, options);
+    this.options = options;
+    this.loose = !!options.loose;
+    // this isn't actually relevant for versions, but keep it so that we
+    // don't run into trouble passing this.options around.
+    this.includePrerelease = !!options.includePrerelease;
+
+    const m = version.trim().match(options.loose ? re$1[t$1.LOOSE] : re$1[t$1.FULL]);
+
+    if (!m) {
+      throw new TypeError(`Invalid Version: ${version}`)
+    }
+
+    this.raw = version;
+
+    // these are actually numbers
+    this.major = +m[1];
+    this.minor = +m[2];
+    this.patch = +m[3];
+
+    if (this.major > MAX_SAFE_INTEGER || this.major < 0) {
+      throw new TypeError('Invalid major version')
+    }
+
+    if (this.minor > MAX_SAFE_INTEGER || this.minor < 0) {
+      throw new TypeError('Invalid minor version')
+    }
+
+    if (this.patch > MAX_SAFE_INTEGER || this.patch < 0) {
+      throw new TypeError('Invalid patch version')
+    }
+
+    // numberify any prerelease numeric ids
+    if (!m[4]) {
+      this.prerelease = [];
+    } else {
+      this.prerelease = m[4].split('.').map((id) => {
+        if (/^[0-9]+$/.test(id)) {
+          const num = +id;
+          if (num >= 0 && num < MAX_SAFE_INTEGER) {
+            return num
+          }
+        }
+        return id
+      });
+    }
+
+    this.build = m[5] ? m[5].split('.') : [];
+    this.format();
+  }
+
+  format () {
+    this.version = `${this.major}.${this.minor}.${this.patch}`;
+    if (this.prerelease.length) {
+      this.version += `-${this.prerelease.join('.')}`;
+    }
+    return this.version
+  }
+
+  toString () {
+    return this.version
+  }
+
+  compare (other) {
+    debug('SemVer.compare', this.version, this.options, other);
+    if (!(other instanceof SemVer)) {
+      if (typeof other === 'string' && other === this.version) {
+        return 0
+      }
+      other = new SemVer(other, this.options);
+    }
+
+    if (other.version === this.version) {
+      return 0
+    }
+
+    return this.compareMain(other) || this.comparePre(other)
+  }
+
+  compareMain (other) {
+    if (!(other instanceof SemVer)) {
+      other = new SemVer(other, this.options);
+    }
+
+    return (
+      compareIdentifiers(this.major, other.major) ||
+      compareIdentifiers(this.minor, other.minor) ||
+      compareIdentifiers(this.patch, other.patch)
+    )
+  }
+
+  comparePre (other) {
+    if (!(other instanceof SemVer)) {
+      other = new SemVer(other, this.options);
+    }
+
+    // NOT having a prerelease is > having one
+    if (this.prerelease.length && !other.prerelease.length) {
+      return -1
+    } else if (!this.prerelease.length && other.prerelease.length) {
+      return 1
+    } else if (!this.prerelease.length && !other.prerelease.length) {
+      return 0
+    }
+
+    let i = 0;
+    do {
+      const a = this.prerelease[i];
+      const b = other.prerelease[i];
+      debug('prerelease compare', i, a, b);
+      if (a === undefined && b === undefined) {
+        return 0
+      } else if (b === undefined) {
+        return 1
+      } else if (a === undefined) {
+        return -1
+      } else if (a === b) {
+        continue
+      } else {
+        return compareIdentifiers(a, b)
+      }
+    } while (++i)
+  }
+
+  compareBuild (other) {
+    if (!(other instanceof SemVer)) {
+      other = new SemVer(other, this.options);
+    }
+
+    let i = 0;
+    do {
+      const a = this.build[i];
+      const b = other.build[i];
+      debug('build compare', i, a, b);
+      if (a === undefined && b === undefined) {
+        return 0
+      } else if (b === undefined) {
+        return 1
+      } else if (a === undefined) {
+        return -1
+      } else if (a === b) {
+        continue
+      } else {
+        return compareIdentifiers(a, b)
+      }
+    } while (++i)
+  }
+
+  // preminor will bump the version up to the next minor release, and immediately
+  // down to pre-release. premajor and prepatch work the same way.
+  inc (release, identifier, identifierBase) {
+    switch (release) {
+      case 'premajor':
+        this.prerelease.length = 0;
+        this.patch = 0;
+        this.minor = 0;
+        this.major++;
+        this.inc('pre', identifier, identifierBase);
+        break
+      case 'preminor':
+        this.prerelease.length = 0;
+        this.patch = 0;
+        this.minor++;
+        this.inc('pre', identifier, identifierBase);
+        break
+      case 'prepatch':
+        // If this is already a prerelease, it will bump to the next version
+        // drop any prereleases that might already exist, since they are not
+        // relevant at this point.
+        this.prerelease.length = 0;
+        this.inc('patch', identifier, identifierBase);
+        this.inc('pre', identifier, identifierBase);
+        break
+      // If the input is a non-prerelease version, this acts the same as
+      // prepatch.
+      case 'prerelease':
+        if (this.prerelease.length === 0) {
+          this.inc('patch', identifier, identifierBase);
+        }
+        this.inc('pre', identifier, identifierBase);
+        break
+
+      case 'major':
+        // If this is a pre-major version, bump up to the same major version.
+        // Otherwise increment major.
+        // 1.0.0-5 bumps to 1.0.0
+        // 1.1.0 bumps to 2.0.0
+        if (
+          this.minor !== 0 ||
+          this.patch !== 0 ||
+          this.prerelease.length === 0
+        ) {
+          this.major++;
+        }
+        this.minor = 0;
+        this.patch = 0;
+        this.prerelease = [];
+        break
+      case 'minor':
+        // If this is a pre-minor version, bump up to the same minor version.
+        // Otherwise increment minor.
+        // 1.2.0-5 bumps to 1.2.0
+        // 1.2.1 bumps to 1.3.0
+        if (this.patch !== 0 || this.prerelease.length === 0) {
+          this.minor++;
+        }
+        this.patch = 0;
+        this.prerelease = [];
+        break
+      case 'patch':
+        // If this is not a pre-release version, it will increment the patch.
+        // If it is a pre-release it will bump up to the same patch version.
+        // 1.2.0-5 patches to 1.2.0
+        // 1.2.0 patches to 1.2.1
+        if (this.prerelease.length === 0) {
+          this.patch++;
+        }
+        this.prerelease = [];
+        break
+      // This probably shouldn't be used publicly.
+      // 1.0.0 'pre' would become 1.0.0-0 which is the wrong direction.
+      case 'pre': {
+        const base = Number(identifierBase) ? 1 : 0;
+
+        if (!identifier && identifierBase === false) {
+          throw new Error('invalid increment argument: identifier is empty')
+        }
+
+        if (this.prerelease.length === 0) {
+          this.prerelease = [base];
+        } else {
+          let i = this.prerelease.length;
+          while (--i >= 0) {
+            if (typeof this.prerelease[i] === 'number') {
+              this.prerelease[i]++;
+              i = -2;
+            }
+          }
+          if (i === -1) {
+            // didn't increment anything
+            if (identifier === this.prerelease.join('.') && identifierBase === false) {
+              throw new Error('invalid increment argument: identifier already exists')
+            }
+            this.prerelease.push(base);
+          }
+        }
+        if (identifier) {
+          // 1.2.0-beta.1 bumps to 1.2.0-beta.2,
+          // 1.2.0-beta.fooblz or 1.2.0-beta bumps to 1.2.0-beta.0
+          let prerelease = [identifier, base];
+          if (identifierBase === false) {
+            prerelease = [identifier];
+          }
+          if (compareIdentifiers(this.prerelease[0], identifier) === 0) {
+            if (isNaN(this.prerelease[1])) {
+              this.prerelease = prerelease;
+            }
+          } else {
+            this.prerelease = prerelease;
+          }
+        }
+        break
+      }
+      default:
+        throw new Error(`invalid increment argument: ${release}`)
+    }
+    this.raw = this.format();
+    if (this.build.length) {
+      this.raw += `+${this.build.join('.')}`;
+    }
+    return this
+  }
+};
+
+var semver$2 = SemVer$d;
+
+const SemVer$c = semver$2;
+const parse$6 = (version, options, throwErrors = false) => {
+  if (version instanceof SemVer$c) {
+    return version
+  }
+  try {
+    return new SemVer$c(version, options)
+  } catch (er) {
+    if (!throwErrors) {
+      return null
+    }
+    throw er
+  }
+};
+
+var parse_1 = parse$6;
+
+const parse$5 = parse_1;
+const valid$2 = (version, options) => {
+  const v = parse$5(version, options);
+  return v ? v.version : null
+};
+var valid_1 = valid$2;
+
+const parse$4 = parse_1;
+const clean$1 = (version, options) => {
+  const s = parse$4(version.trim().replace(/^[=v]+/, ''), options);
+  return s ? s.version : null
+};
+var clean_1 = clean$1;
+
+const SemVer$b = semver$2;
+
+const inc$1 = (version, release, options, identifier, identifierBase) => {
+  if (typeof (options) === 'string') {
+    identifierBase = identifier;
+    identifier = options;
+    options = undefined;
+  }
+
+  try {
+    return new SemVer$b(
+      version instanceof SemVer$b ? version.version : version,
+      options
+    ).inc(release, identifier, identifierBase).version
+  } catch (er) {
+    return null
+  }
+};
+var inc_1 = inc$1;
+
+const parse$3 = parse_1;
+
+const diff$1 = (version1, version2) => {
+  const v1 = parse$3(version1, null, true);
+  const v2 = parse$3(version2, null, true);
+  const comparison = v1.compare(v2);
+
+  if (comparison === 0) {
+    return null
+  }
+
+  const v1Higher = comparison > 0;
+  const highVersion = v1Higher ? v1 : v2;
+  const lowVersion = v1Higher ? v2 : v1;
+  const highHasPre = !!highVersion.prerelease.length;
+  const lowHasPre = !!lowVersion.prerelease.length;
+
+  if (lowHasPre && !highHasPre) {
+    // Going from prerelease -> no prerelease requires some special casing
+
+    // If the low version has only a major, then it will always be a major
+    // Some examples:
+    // 1.0.0-1 -> 1.0.0
+    // 1.0.0-1 -> 1.1.1
+    // 1.0.0-1 -> 2.0.0
+    if (!lowVersion.patch && !lowVersion.minor) {
+      return 'major'
+    }
+
+    // Otherwise it can be determined by checking the high version
+
+    if (highVersion.patch) {
+      // anything higher than a patch bump would result in the wrong version
+      return 'patch'
+    }
+
+    if (highVersion.minor) {
+      // anything higher than a minor bump would result in the wrong version
+      return 'minor'
+    }
+
+    // bumping major/minor/patch all have same result
+    return 'major'
+  }
+
+  // add the `pre` prefix if we are going to a prerelease version
+  const prefix = highHasPre ? 'pre' : '';
+
+  if (v1.major !== v2.major) {
+    return prefix + 'major'
+  }
+
+  if (v1.minor !== v2.minor) {
+    return prefix + 'minor'
+  }
+
+  if (v1.patch !== v2.patch) {
+    return prefix + 'patch'
+  }
+
+  // high and low are preleases
+  return 'prerelease'
+};
+
+var diff_1 = diff$1;
+
+const SemVer$a = semver$2;
+const major$1 = (a, loose) => new SemVer$a(a, loose).major;
+var major_1 = major$1;
+
+const SemVer$9 = semver$2;
+const minor$1 = (a, loose) => new SemVer$9(a, loose).minor;
+var minor_1 = minor$1;
+
+const SemVer$8 = semver$2;
+const patch$1 = (a, loose) => new SemVer$8(a, loose).patch;
+var patch_1 = patch$1;
+
+const parse$2 = parse_1;
+const prerelease$1 = (version, options) => {
+  const parsed = parse$2(version, options);
+  return (parsed && parsed.prerelease.length) ? parsed.prerelease : null
+};
+var prerelease_1 = prerelease$1;
+
+const SemVer$7 = semver$2;
+const compare$b = (a, b, loose) =>
+  new SemVer$7(a, loose).compare(new SemVer$7(b, loose));
+
+var compare_1 = compare$b;
+
+const compare$a = compare_1;
+const rcompare$1 = (a, b, loose) => compare$a(b, a, loose);
+var rcompare_1 = rcompare$1;
+
+const compare$9 = compare_1;
+const compareLoose$1 = (a, b) => compare$9(a, b, true);
+var compareLoose_1 = compareLoose$1;
+
+const SemVer$6 = semver$2;
+const compareBuild$3 = (a, b, loose) => {
+  const versionA = new SemVer$6(a, loose);
+  const versionB = new SemVer$6(b, loose);
+  return versionA.compare(versionB) || versionA.compareBuild(versionB)
+};
+var compareBuild_1 = compareBuild$3;
+
+const compareBuild$2 = compareBuild_1;
+const sort$1 = (list, loose) => list.sort((a, b) => compareBuild$2(a, b, loose));
+var sort_1 = sort$1;
+
+const compareBuild$1 = compareBuild_1;
+const rsort$1 = (list, loose) => list.sort((a, b) => compareBuild$1(b, a, loose));
+var rsort_1 = rsort$1;
+
+const compare$8 = compare_1;
+const gt$4 = (a, b, loose) => compare$8(a, b, loose) > 0;
+var gt_1 = gt$4;
+
+const compare$7 = compare_1;
+const lt$3 = (a, b, loose) => compare$7(a, b, loose) < 0;
+var lt_1 = lt$3;
+
+const compare$6 = compare_1;
+const eq$2 = (a, b, loose) => compare$6(a, b, loose) === 0;
+var eq_1 = eq$2;
+
+const compare$5 = compare_1;
+const neq$2 = (a, b, loose) => compare$5(a, b, loose) !== 0;
+var neq_1 = neq$2;
+
+const compare$4 = compare_1;
+const gte$3 = (a, b, loose) => compare$4(a, b, loose) >= 0;
+var gte_1 = gte$3;
+
+const compare$3 = compare_1;
+const lte$3 = (a, b, loose) => compare$3(a, b, loose) <= 0;
+var lte_1 = lte$3;
+
+const eq$1 = eq_1;
+const neq$1 = neq_1;
+const gt$3 = gt_1;
+const gte$2 = gte_1;
+const lt$2 = lt_1;
+const lte$2 = lte_1;
+
+const cmp$1 = (a, op, b, loose) => {
+  switch (op) {
+    case '===':
+      if (typeof a === 'object') {
+        a = a.version;
+      }
+      if (typeof b === 'object') {
+        b = b.version;
+      }
+      return a === b
+
+    case '!==':
+      if (typeof a === 'object') {
+        a = a.version;
+      }
+      if (typeof b === 'object') {
+        b = b.version;
+      }
+      return a !== b
+
+    case '':
+    case '=':
+    case '==':
+      return eq$1(a, b, loose)
+
+    case '!=':
+      return neq$1(a, b, loose)
+
+    case '>':
+      return gt$3(a, b, loose)
+
+    case '>=':
+      return gte$2(a, b, loose)
+
+    case '<':
+      return lt$2(a, b, loose)
+
+    case '<=':
+      return lte$2(a, b, loose)
+
+    default:
+      throw new TypeError(`Invalid operator: ${op}`)
+  }
+};
+var cmp_1 = cmp$1;
+
+const SemVer$5 = semver$2;
+const parse$1 = parse_1;
+const { safeRe: re, t } = reExports;
+
+const coerce$1 = (version, options) => {
+  if (version instanceof SemVer$5) {
+    return version
+  }
+
+  if (typeof version === 'number') {
+    version = String(version);
+  }
+
+  if (typeof version !== 'string') {
+    return null
+  }
+
+  options = options || {};
+
+  let match = null;
+  if (!options.rtl) {
+    match = version.match(options.includePrerelease ? re[t.COERCEFULL] : re[t.COERCE]);
+  } else {
+    // Find the right-most coercible string that does not share
+    // a terminus with a more left-ward coercible string.
+    // Eg, '1.2.3.4' wants to coerce '2.3.4', not '3.4' or '4'
+    // With includePrerelease option set, '1.2.3.4-rc' wants to coerce '2.3.4-rc', not '2.3.4'
+    //
+    // Walk through the string checking with a /g regexp
+    // Manually set the index so as to pick up overlapping matches.
+    // Stop when we get a match that ends at the string end, since no
+    // coercible string can be more right-ward without the same terminus.
+    const coerceRtlRegex = options.includePrerelease ? re[t.COERCERTLFULL] : re[t.COERCERTL];
+    let next;
+    while ((next = coerceRtlRegex.exec(version)) &&
+        (!match || match.index + match[0].length !== version.length)
+    ) {
+      if (!match ||
+            next.index + next[0].length !== match.index + match[0].length) {
+        match = next;
+      }
+      coerceRtlRegex.lastIndex = next.index + next[1].length + next[2].length;
+    }
+    // leave it in a clean state
+    coerceRtlRegex.lastIndex = -1;
+  }
+
+  if (match === null) {
+    return null
+  }
+
+  const major = match[2];
+  const minor = match[3] || '0';
+  const patch = match[4] || '0';
+  const prerelease = options.includePrerelease && match[5] ? `-${match[5]}` : '';
+  const build = options.includePrerelease && match[6] ? `+${match[6]}` : '';
+
+  return parse$1(`${major}.${minor}.${patch}${prerelease}${build}`, options)
+};
+var coerce_1 = coerce$1;
+
+class LRUCache {
+  constructor () {
+    this.max = 1000;
+    this.map = new Map();
+  }
+
+  get (key) {
+    const value = this.map.get(key);
+    if (value === undefined) {
+      return undefined
+    } else {
+      // Remove the key from the map and add it to the end
+      this.map.delete(key);
+      this.map.set(key, value);
+      return value
+    }
+  }
+
+  delete (key) {
+    return this.map.delete(key)
+  }
+
+  set (key, value) {
+    const deleted = this.delete(key);
+
+    if (!deleted && value !== undefined) {
+      // If cache is full, delete the least recently used item
+      if (this.map.size >= this.max) {
+        const firstKey = this.map.keys().next().value;
+        this.delete(firstKey);
+      }
+
+      this.map.set(key, value);
+    }
+
+    return this
+  }
 }
 
-var debug_1;
-var hasRequiredDebug;
-
-function requireDebug () {
-	if (hasRequiredDebug) return debug_1;
-	hasRequiredDebug = 1;
-	const debug = (
-	  typeof process === 'object' &&
-	  process.env &&
-	  process.env.NODE_DEBUG &&
-	  /\bsemver\b/i.test(process.env.NODE_DEBUG)
-	) ? (...args) => console.error('SEMVER', ...args)
-	  : () => {};
-
-	debug_1 = debug;
-	return debug_1;
-}
-
-var hasRequiredRe;
-
-function requireRe () {
-	if (hasRequiredRe) return reExports;
-	hasRequiredRe = 1;
-	(function (module, exports) {
-		const {
-		  MAX_SAFE_COMPONENT_LENGTH,
-		  MAX_SAFE_BUILD_LENGTH,
-		  MAX_LENGTH,
-		} = requireConstants();
-		const debug = requireDebug();
-		exports = module.exports = {};
-
-		// The actual regexps go on exports.re
-		const re = exports.re = [];
-		const safeRe = exports.safeRe = [];
-		const src = exports.src = [];
-		const t = exports.t = {};
-		let R = 0;
-
-		const LETTERDASHNUMBER = '[a-zA-Z0-9-]';
-
-		// Replace some greedy regex tokens to prevent regex dos issues. These regex are
-		// used internally via the safeRe object since all inputs in this library get
-		// normalized first to trim and collapse all extra whitespace. The original
-		// regexes are exported for userland consumption and lower level usage. A
-		// future breaking change could export the safer regex only with a note that
-		// all input should have extra whitespace removed.
-		const safeRegexReplacements = [
-		  ['\\s', 1],
-		  ['\\d', MAX_LENGTH],
-		  [LETTERDASHNUMBER, MAX_SAFE_BUILD_LENGTH],
-		];
-
-		const makeSafeRegex = (value) => {
-		  for (const [token, max] of safeRegexReplacements) {
-		    value = value
-		      .split(`${token}*`).join(`${token}{0,${max}}`)
-		      .split(`${token}+`).join(`${token}{1,${max}}`);
-		  }
-		  return value
-		};
-
-		const createToken = (name, value, isGlobal) => {
-		  const safe = makeSafeRegex(value);
-		  const index = R++;
-		  debug(name, index, value);
-		  t[name] = index;
-		  src[index] = value;
-		  re[index] = new RegExp(value, isGlobal ? 'g' : undefined);
-		  safeRe[index] = new RegExp(safe, isGlobal ? 'g' : undefined);
-		};
-
-		// The following Regular Expressions can be used for tokenizing,
-		// validating, and parsing SemVer version strings.
-
-		// ## Numeric Identifier
-		// A single `0`, or a non-zero digit followed by zero or more digits.
-
-		createToken('NUMERICIDENTIFIER', '0|[1-9]\\d*');
-		createToken('NUMERICIDENTIFIERLOOSE', '\\d+');
-
-		// ## Non-numeric Identifier
-		// Zero or more digits, followed by a letter or hyphen, and then zero or
-		// more letters, digits, or hyphens.
-
-		createToken('NONNUMERICIDENTIFIER', `\\d*[a-zA-Z-]${LETTERDASHNUMBER}*`);
-
-		// ## Main Version
-		// Three dot-separated numeric identifiers.
-
-		createToken('MAINVERSION', `(${src[t.NUMERICIDENTIFIER]})\\.` +
-		                   `(${src[t.NUMERICIDENTIFIER]})\\.` +
-		                   `(${src[t.NUMERICIDENTIFIER]})`);
-
-		createToken('MAINVERSIONLOOSE', `(${src[t.NUMERICIDENTIFIERLOOSE]})\\.` +
-		                        `(${src[t.NUMERICIDENTIFIERLOOSE]})\\.` +
-		                        `(${src[t.NUMERICIDENTIFIERLOOSE]})`);
-
-		// ## Pre-release Version Identifier
-		// A numeric identifier, or a non-numeric identifier.
-
-		createToken('PRERELEASEIDENTIFIER', `(?:${src[t.NUMERICIDENTIFIER]
-		}|${src[t.NONNUMERICIDENTIFIER]})`);
-
-		createToken('PRERELEASEIDENTIFIERLOOSE', `(?:${src[t.NUMERICIDENTIFIERLOOSE]
-		}|${src[t.NONNUMERICIDENTIFIER]})`);
-
-		// ## Pre-release Version
-		// Hyphen, followed by one or more dot-separated pre-release version
-		// identifiers.
-
-		createToken('PRERELEASE', `(?:-(${src[t.PRERELEASEIDENTIFIER]
-		}(?:\\.${src[t.PRERELEASEIDENTIFIER]})*))`);
-
-		createToken('PRERELEASELOOSE', `(?:-?(${src[t.PRERELEASEIDENTIFIERLOOSE]
-		}(?:\\.${src[t.PRERELEASEIDENTIFIERLOOSE]})*))`);
-
-		// ## Build Metadata Identifier
-		// Any combination of digits, letters, or hyphens.
-
-		createToken('BUILDIDENTIFIER', `${LETTERDASHNUMBER}+`);
-
-		// ## Build Metadata
-		// Plus sign, followed by one or more period-separated build metadata
-		// identifiers.
-
-		createToken('BUILD', `(?:\\+(${src[t.BUILDIDENTIFIER]
-		}(?:\\.${src[t.BUILDIDENTIFIER]})*))`);
-
-		// ## Full Version String
-		// A main version, followed optionally by a pre-release version and
-		// build metadata.
-
-		// Note that the only major, minor, patch, and pre-release sections of
-		// the version string are capturing groups.  The build metadata is not a
-		// capturing group, because it should not ever be used in version
-		// comparison.
-
-		createToken('FULLPLAIN', `v?${src[t.MAINVERSION]
-		}${src[t.PRERELEASE]}?${
-		  src[t.BUILD]}?`);
-
-		createToken('FULL', `^${src[t.FULLPLAIN]}$`);
-
-		// like full, but allows v1.2.3 and =1.2.3, which people do sometimes.
-		// also, 1.0.0alpha1 (prerelease without the hyphen) which is pretty
-		// common in the npm registry.
-		createToken('LOOSEPLAIN', `[v=\\s]*${src[t.MAINVERSIONLOOSE]
-		}${src[t.PRERELEASELOOSE]}?${
-		  src[t.BUILD]}?`);
-
-		createToken('LOOSE', `^${src[t.LOOSEPLAIN]}$`);
-
-		createToken('GTLT', '((?:<|>)?=?)');
-
-		// Something like "2.*" or "1.2.x".
-		// Note that "x.x" is a valid xRange identifer, meaning "any version"
-		// Only the first item is strictly required.
-		createToken('XRANGEIDENTIFIERLOOSE', `${src[t.NUMERICIDENTIFIERLOOSE]}|x|X|\\*`);
-		createToken('XRANGEIDENTIFIER', `${src[t.NUMERICIDENTIFIER]}|x|X|\\*`);
-
-		createToken('XRANGEPLAIN', `[v=\\s]*(${src[t.XRANGEIDENTIFIER]})` +
-		                   `(?:\\.(${src[t.XRANGEIDENTIFIER]})` +
-		                   `(?:\\.(${src[t.XRANGEIDENTIFIER]})` +
-		                   `(?:${src[t.PRERELEASE]})?${
-		                     src[t.BUILD]}?` +
-		                   `)?)?`);
-
-		createToken('XRANGEPLAINLOOSE', `[v=\\s]*(${src[t.XRANGEIDENTIFIERLOOSE]})` +
-		                        `(?:\\.(${src[t.XRANGEIDENTIFIERLOOSE]})` +
-		                        `(?:\\.(${src[t.XRANGEIDENTIFIERLOOSE]})` +
-		                        `(?:${src[t.PRERELEASELOOSE]})?${
-		                          src[t.BUILD]}?` +
-		                        `)?)?`);
-
-		createToken('XRANGE', `^${src[t.GTLT]}\\s*${src[t.XRANGEPLAIN]}$`);
-		createToken('XRANGELOOSE', `^${src[t.GTLT]}\\s*${src[t.XRANGEPLAINLOOSE]}$`);
-
-		// Coercion.
-		// Extract anything that could conceivably be a part of a valid semver
-		createToken('COERCE', `${'(^|[^\\d])' +
-		              '(\\d{1,'}${MAX_SAFE_COMPONENT_LENGTH}})` +
-		              `(?:\\.(\\d{1,${MAX_SAFE_COMPONENT_LENGTH}}))?` +
-		              `(?:\\.(\\d{1,${MAX_SAFE_COMPONENT_LENGTH}}))?` +
-		              `(?:$|[^\\d])`);
-		createToken('COERCERTL', src[t.COERCE], true);
-
-		// Tilde ranges.
-		// Meaning is "reasonably at or greater than"
-		createToken('LONETILDE', '(?:~>?)');
-
-		createToken('TILDETRIM', `(\\s*)${src[t.LONETILDE]}\\s+`, true);
-		exports.tildeTrimReplace = '$1~';
-
-		createToken('TILDE', `^${src[t.LONETILDE]}${src[t.XRANGEPLAIN]}$`);
-		createToken('TILDELOOSE', `^${src[t.LONETILDE]}${src[t.XRANGEPLAINLOOSE]}$`);
-
-		// Caret ranges.
-		// Meaning is "at least and backwards compatible with"
-		createToken('LONECARET', '(?:\\^)');
-
-		createToken('CARETTRIM', `(\\s*)${src[t.LONECARET]}\\s+`, true);
-		exports.caretTrimReplace = '$1^';
-
-		createToken('CARET', `^${src[t.LONECARET]}${src[t.XRANGEPLAIN]}$`);
-		createToken('CARETLOOSE', `^${src[t.LONECARET]}${src[t.XRANGEPLAINLOOSE]}$`);
-
-		// A simple gt/lt/eq thing, or just "" to indicate "any version"
-		createToken('COMPARATORLOOSE', `^${src[t.GTLT]}\\s*(${src[t.LOOSEPLAIN]})$|^$`);
-		createToken('COMPARATOR', `^${src[t.GTLT]}\\s*(${src[t.FULLPLAIN]})$|^$`);
-
-		// An expression to strip any whitespace between the gtlt and the thing
-		// it modifies, so that `> 1.2.3` ==> `>1.2.3`
-		createToken('COMPARATORTRIM', `(\\s*)${src[t.GTLT]
-		}\\s*(${src[t.LOOSEPLAIN]}|${src[t.XRANGEPLAIN]})`, true);
-		exports.comparatorTrimReplace = '$1$2$3';
-
-		// Something like `1.2.3 - 1.2.4`
-		// Note that these all use the loose form, because they'll be
-		// checked against either the strict or loose comparator form
-		// later.
-		createToken('HYPHENRANGE', `^\\s*(${src[t.XRANGEPLAIN]})` +
-		                   `\\s+-\\s+` +
-		                   `(${src[t.XRANGEPLAIN]})` +
-		                   `\\s*$`);
-
-		createToken('HYPHENRANGELOOSE', `^\\s*(${src[t.XRANGEPLAINLOOSE]})` +
-		                        `\\s+-\\s+` +
-		                        `(${src[t.XRANGEPLAINLOOSE]})` +
-		                        `\\s*$`);
-
-		// Star ranges basically just allow anything at all.
-		createToken('STAR', '(<|>)?=?\\s*\\*');
-		// >=0.0.0 is like a star
-		createToken('GTE0', '^\\s*>=\\s*0\\.0\\.0\\s*$');
-		createToken('GTE0PRE', '^\\s*>=\\s*0\\.0\\.0-0\\s*$');
-} (re, reExports));
-	return reExports;
-}
-
-var parseOptions_1;
-var hasRequiredParseOptions;
-
-function requireParseOptions () {
-	if (hasRequiredParseOptions) return parseOptions_1;
-	hasRequiredParseOptions = 1;
-	// parse out just the options we care about
-	const looseOption = Object.freeze({ loose: true });
-	const emptyOpts = Object.freeze({ });
-	const parseOptions = options => {
-	  if (!options) {
-	    return emptyOpts
-	  }
-
-	  if (typeof options !== 'object') {
-	    return looseOption
-	  }
-
-	  return options
-	};
-	parseOptions_1 = parseOptions;
-	return parseOptions_1;
-}
-
-var identifiers;
-var hasRequiredIdentifiers;
-
-function requireIdentifiers () {
-	if (hasRequiredIdentifiers) return identifiers;
-	hasRequiredIdentifiers = 1;
-	const numeric = /^[0-9]+$/;
-	const compareIdentifiers = (a, b) => {
-	  const anum = numeric.test(a);
-	  const bnum = numeric.test(b);
-
-	  if (anum && bnum) {
-	    a = +a;
-	    b = +b;
-	  }
-
-	  return a === b ? 0
-	    : (anum && !bnum) ? -1
-	    : (bnum && !anum) ? 1
-	    : a < b ? -1
-	    : 1
-	};
-
-	const rcompareIdentifiers = (a, b) => compareIdentifiers(b, a);
-
-	identifiers = {
-	  compareIdentifiers,
-	  rcompareIdentifiers,
-	};
-	return identifiers;
-}
-
-var semver$2;
-var hasRequiredSemver$1;
-
-function requireSemver$1 () {
-	if (hasRequiredSemver$1) return semver$2;
-	hasRequiredSemver$1 = 1;
-	const debug = requireDebug();
-	const { MAX_LENGTH, MAX_SAFE_INTEGER } = requireConstants();
-	const { safeRe: re, t } = requireRe();
-
-	const parseOptions = requireParseOptions();
-	const { compareIdentifiers } = requireIdentifiers();
-	class SemVer {
-	  constructor (version, options) {
-	    options = parseOptions(options);
-
-	    if (version instanceof SemVer) {
-	      if (version.loose === !!options.loose &&
-	          version.includePrerelease === !!options.includePrerelease) {
-	        return version
-	      } else {
-	        version = version.version;
-	      }
-	    } else if (typeof version !== 'string') {
-	      throw new TypeError(`Invalid version. Must be a string. Got type "${typeof version}".`)
-	    }
-
-	    if (version.length > MAX_LENGTH) {
-	      throw new TypeError(
-	        `version is longer than ${MAX_LENGTH} characters`
-	      )
-	    }
-
-	    debug('SemVer', version, options);
-	    this.options = options;
-	    this.loose = !!options.loose;
-	    // this isn't actually relevant for versions, but keep it so that we
-	    // don't run into trouble passing this.options around.
-	    this.includePrerelease = !!options.includePrerelease;
-
-	    const m = version.trim().match(options.loose ? re[t.LOOSE] : re[t.FULL]);
-
-	    if (!m) {
-	      throw new TypeError(`Invalid Version: ${version}`)
-	    }
-
-	    this.raw = version;
-
-	    // these are actually numbers
-	    this.major = +m[1];
-	    this.minor = +m[2];
-	    this.patch = +m[3];
-
-	    if (this.major > MAX_SAFE_INTEGER || this.major < 0) {
-	      throw new TypeError('Invalid major version')
-	    }
-
-	    if (this.minor > MAX_SAFE_INTEGER || this.minor < 0) {
-	      throw new TypeError('Invalid minor version')
-	    }
-
-	    if (this.patch > MAX_SAFE_INTEGER || this.patch < 0) {
-	      throw new TypeError('Invalid patch version')
-	    }
-
-	    // numberify any prerelease numeric ids
-	    if (!m[4]) {
-	      this.prerelease = [];
-	    } else {
-	      this.prerelease = m[4].split('.').map((id) => {
-	        if (/^[0-9]+$/.test(id)) {
-	          const num = +id;
-	          if (num >= 0 && num < MAX_SAFE_INTEGER) {
-	            return num
-	          }
-	        }
-	        return id
-	      });
-	    }
-
-	    this.build = m[5] ? m[5].split('.') : [];
-	    this.format();
-	  }
-
-	  format () {
-	    this.version = `${this.major}.${this.minor}.${this.patch}`;
-	    if (this.prerelease.length) {
-	      this.version += `-${this.prerelease.join('.')}`;
-	    }
-	    return this.version
-	  }
-
-	  toString () {
-	    return this.version
-	  }
-
-	  compare (other) {
-	    debug('SemVer.compare', this.version, this.options, other);
-	    if (!(other instanceof SemVer)) {
-	      if (typeof other === 'string' && other === this.version) {
-	        return 0
-	      }
-	      other = new SemVer(other, this.options);
-	    }
-
-	    if (other.version === this.version) {
-	      return 0
-	    }
-
-	    return this.compareMain(other) || this.comparePre(other)
-	  }
-
-	  compareMain (other) {
-	    if (!(other instanceof SemVer)) {
-	      other = new SemVer(other, this.options);
-	    }
-
-	    return (
-	      compareIdentifiers(this.major, other.major) ||
-	      compareIdentifiers(this.minor, other.minor) ||
-	      compareIdentifiers(this.patch, other.patch)
-	    )
-	  }
-
-	  comparePre (other) {
-	    if (!(other instanceof SemVer)) {
-	      other = new SemVer(other, this.options);
-	    }
-
-	    // NOT having a prerelease is > having one
-	    if (this.prerelease.length && !other.prerelease.length) {
-	      return -1
-	    } else if (!this.prerelease.length && other.prerelease.length) {
-	      return 1
-	    } else if (!this.prerelease.length && !other.prerelease.length) {
-	      return 0
-	    }
-
-	    let i = 0;
-	    do {
-	      const a = this.prerelease[i];
-	      const b = other.prerelease[i];
-	      debug('prerelease compare', i, a, b);
-	      if (a === undefined && b === undefined) {
-	        return 0
-	      } else if (b === undefined) {
-	        return 1
-	      } else if (a === undefined) {
-	        return -1
-	      } else if (a === b) {
-	        continue
-	      } else {
-	        return compareIdentifiers(a, b)
-	      }
-	    } while (++i)
-	  }
-
-	  compareBuild (other) {
-	    if (!(other instanceof SemVer)) {
-	      other = new SemVer(other, this.options);
-	    }
-
-	    let i = 0;
-	    do {
-	      const a = this.build[i];
-	      const b = other.build[i];
-	      debug('prerelease compare', i, a, b);
-	      if (a === undefined && b === undefined) {
-	        return 0
-	      } else if (b === undefined) {
-	        return 1
-	      } else if (a === undefined) {
-	        return -1
-	      } else if (a === b) {
-	        continue
-	      } else {
-	        return compareIdentifiers(a, b)
-	      }
-	    } while (++i)
-	  }
-
-	  // preminor will bump the version up to the next minor release, and immediately
-	  // down to pre-release. premajor and prepatch work the same way.
-	  inc (release, identifier, identifierBase) {
-	    switch (release) {
-	      case 'premajor':
-	        this.prerelease.length = 0;
-	        this.patch = 0;
-	        this.minor = 0;
-	        this.major++;
-	        this.inc('pre', identifier, identifierBase);
-	        break
-	      case 'preminor':
-	        this.prerelease.length = 0;
-	        this.patch = 0;
-	        this.minor++;
-	        this.inc('pre', identifier, identifierBase);
-	        break
-	      case 'prepatch':
-	        // If this is already a prerelease, it will bump to the next version
-	        // drop any prereleases that might already exist, since they are not
-	        // relevant at this point.
-	        this.prerelease.length = 0;
-	        this.inc('patch', identifier, identifierBase);
-	        this.inc('pre', identifier, identifierBase);
-	        break
-	      // If the input is a non-prerelease version, this acts the same as
-	      // prepatch.
-	      case 'prerelease':
-	        if (this.prerelease.length === 0) {
-	          this.inc('patch', identifier, identifierBase);
-	        }
-	        this.inc('pre', identifier, identifierBase);
-	        break
-
-	      case 'major':
-	        // If this is a pre-major version, bump up to the same major version.
-	        // Otherwise increment major.
-	        // 1.0.0-5 bumps to 1.0.0
-	        // 1.1.0 bumps to 2.0.0
-	        if (
-	          this.minor !== 0 ||
-	          this.patch !== 0 ||
-	          this.prerelease.length === 0
-	        ) {
-	          this.major++;
-	        }
-	        this.minor = 0;
-	        this.patch = 0;
-	        this.prerelease = [];
-	        break
-	      case 'minor':
-	        // If this is a pre-minor version, bump up to the same minor version.
-	        // Otherwise increment minor.
-	        // 1.2.0-5 bumps to 1.2.0
-	        // 1.2.1 bumps to 1.3.0
-	        if (this.patch !== 0 || this.prerelease.length === 0) {
-	          this.minor++;
-	        }
-	        this.patch = 0;
-	        this.prerelease = [];
-	        break
-	      case 'patch':
-	        // If this is not a pre-release version, it will increment the patch.
-	        // If it is a pre-release it will bump up to the same patch version.
-	        // 1.2.0-5 patches to 1.2.0
-	        // 1.2.0 patches to 1.2.1
-	        if (this.prerelease.length === 0) {
-	          this.patch++;
-	        }
-	        this.prerelease = [];
-	        break
-	      // This probably shouldn't be used publicly.
-	      // 1.0.0 'pre' would become 1.0.0-0 which is the wrong direction.
-	      case 'pre': {
-	        const base = Number(identifierBase) ? 1 : 0;
-
-	        if (!identifier && identifierBase === false) {
-	          throw new Error('invalid increment argument: identifier is empty')
-	        }
-
-	        if (this.prerelease.length === 0) {
-	          this.prerelease = [base];
-	        } else {
-	          let i = this.prerelease.length;
-	          while (--i >= 0) {
-	            if (typeof this.prerelease[i] === 'number') {
-	              this.prerelease[i]++;
-	              i = -2;
-	            }
-	          }
-	          if (i === -1) {
-	            // didn't increment anything
-	            if (identifier === this.prerelease.join('.') && identifierBase === false) {
-	              throw new Error('invalid increment argument: identifier already exists')
-	            }
-	            this.prerelease.push(base);
-	          }
-	        }
-	        if (identifier) {
-	          // 1.2.0-beta.1 bumps to 1.2.0-beta.2,
-	          // 1.2.0-beta.fooblz or 1.2.0-beta bumps to 1.2.0-beta.0
-	          let prerelease = [identifier, base];
-	          if (identifierBase === false) {
-	            prerelease = [identifier];
-	          }
-	          if (compareIdentifiers(this.prerelease[0], identifier) === 0) {
-	            if (isNaN(this.prerelease[1])) {
-	              this.prerelease = prerelease;
-	            }
-	          } else {
-	            this.prerelease = prerelease;
-	          }
-	        }
-	        break
-	      }
-	      default:
-	        throw new Error(`invalid increment argument: ${release}`)
-	    }
-	    this.raw = this.format();
-	    if (this.build.length) {
-	      this.raw += `+${this.build.join('.')}`;
-	    }
-	    return this
-	  }
-	}
-
-	semver$2 = SemVer;
-	return semver$2;
-}
-
-var parse_1;
-var hasRequiredParse;
-
-function requireParse () {
-	if (hasRequiredParse) return parse_1;
-	hasRequiredParse = 1;
-	const SemVer = requireSemver$1();
-	const parse = (version, options, throwErrors = false) => {
-	  if (version instanceof SemVer) {
-	    return version
-	  }
-	  try {
-	    return new SemVer(version, options)
-	  } catch (er) {
-	    if (!throwErrors) {
-	      return null
-	    }
-	    throw er
-	  }
-	};
-
-	parse_1 = parse;
-	return parse_1;
-}
-
-var valid_1;
-var hasRequiredValid$1;
-
-function requireValid$1 () {
-	if (hasRequiredValid$1) return valid_1;
-	hasRequiredValid$1 = 1;
-	const parse = requireParse();
-	const valid = (version, options) => {
-	  const v = parse(version, options);
-	  return v ? v.version : null
-	};
-	valid_1 = valid;
-	return valid_1;
-}
-
-var clean_1;
-var hasRequiredClean;
-
-function requireClean () {
-	if (hasRequiredClean) return clean_1;
-	hasRequiredClean = 1;
-	const parse = requireParse();
-	const clean = (version, options) => {
-	  const s = parse(version.trim().replace(/^[=v]+/, ''), options);
-	  return s ? s.version : null
-	};
-	clean_1 = clean;
-	return clean_1;
-}
-
-var inc_1;
-var hasRequiredInc;
-
-function requireInc () {
-	if (hasRequiredInc) return inc_1;
-	hasRequiredInc = 1;
-	const SemVer = requireSemver$1();
-
-	const inc = (version, release, options, identifier, identifierBase) => {
-	  if (typeof (options) === 'string') {
-	    identifierBase = identifier;
-	    identifier = options;
-	    options = undefined;
-	  }
-
-	  try {
-	    return new SemVer(
-	      version instanceof SemVer ? version.version : version,
-	      options
-	    ).inc(release, identifier, identifierBase).version
-	  } catch (er) {
-	    return null
-	  }
-	};
-	inc_1 = inc;
-	return inc_1;
-}
-
-var diff_1;
-var hasRequiredDiff;
-
-function requireDiff () {
-	if (hasRequiredDiff) return diff_1;
-	hasRequiredDiff = 1;
-	const parse = requireParse();
-
-	const diff = (version1, version2) => {
-	  const v1 = parse(version1, null, true);
-	  const v2 = parse(version2, null, true);
-	  const comparison = v1.compare(v2);
-
-	  if (comparison === 0) {
-	    return null
-	  }
-
-	  const v1Higher = comparison > 0;
-	  const highVersion = v1Higher ? v1 : v2;
-	  const lowVersion = v1Higher ? v2 : v1;
-	  const highHasPre = !!highVersion.prerelease.length;
-	  const lowHasPre = !!lowVersion.prerelease.length;
-
-	  if (lowHasPre && !highHasPre) {
-	    // Going from prerelease -> no prerelease requires some special casing
-
-	    // If the low version has only a major, then it will always be a major
-	    // Some examples:
-	    // 1.0.0-1 -> 1.0.0
-	    // 1.0.0-1 -> 1.1.1
-	    // 1.0.0-1 -> 2.0.0
-	    if (!lowVersion.patch && !lowVersion.minor) {
-	      return 'major'
-	    }
-
-	    // Otherwise it can be determined by checking the high version
-
-	    if (highVersion.patch) {
-	      // anything higher than a patch bump would result in the wrong version
-	      return 'patch'
-	    }
-
-	    if (highVersion.minor) {
-	      // anything higher than a minor bump would result in the wrong version
-	      return 'minor'
-	    }
-
-	    // bumping major/minor/patch all have same result
-	    return 'major'
-	  }
-
-	  // add the `pre` prefix if we are going to a prerelease version
-	  const prefix = highHasPre ? 'pre' : '';
-
-	  if (v1.major !== v2.major) {
-	    return prefix + 'major'
-	  }
-
-	  if (v1.minor !== v2.minor) {
-	    return prefix + 'minor'
-	  }
-
-	  if (v1.patch !== v2.patch) {
-	    return prefix + 'patch'
-	  }
-
-	  // high and low are preleases
-	  return 'prerelease'
-	};
-
-	diff_1 = diff;
-	return diff_1;
-}
-
-var major_1;
-var hasRequiredMajor;
-
-function requireMajor () {
-	if (hasRequiredMajor) return major_1;
-	hasRequiredMajor = 1;
-	const SemVer = requireSemver$1();
-	const major = (a, loose) => new SemVer(a, loose).major;
-	major_1 = major;
-	return major_1;
-}
-
-var minor_1;
-var hasRequiredMinor;
-
-function requireMinor () {
-	if (hasRequiredMinor) return minor_1;
-	hasRequiredMinor = 1;
-	const SemVer = requireSemver$1();
-	const minor = (a, loose) => new SemVer(a, loose).minor;
-	minor_1 = minor;
-	return minor_1;
-}
-
-var patch_1;
-var hasRequiredPatch;
-
-function requirePatch () {
-	if (hasRequiredPatch) return patch_1;
-	hasRequiredPatch = 1;
-	const SemVer = requireSemver$1();
-	const patch = (a, loose) => new SemVer(a, loose).patch;
-	patch_1 = patch;
-	return patch_1;
-}
-
-var prerelease_1;
-var hasRequiredPrerelease;
-
-function requirePrerelease () {
-	if (hasRequiredPrerelease) return prerelease_1;
-	hasRequiredPrerelease = 1;
-	const parse = requireParse();
-	const prerelease = (version, options) => {
-	  const parsed = parse(version, options);
-	  return (parsed && parsed.prerelease.length) ? parsed.prerelease : null
-	};
-	prerelease_1 = prerelease;
-	return prerelease_1;
-}
-
-var compare_1;
-var hasRequiredCompare;
-
-function requireCompare () {
-	if (hasRequiredCompare) return compare_1;
-	hasRequiredCompare = 1;
-	const SemVer = requireSemver$1();
-	const compare = (a, b, loose) =>
-	  new SemVer(a, loose).compare(new SemVer(b, loose));
-
-	compare_1 = compare;
-	return compare_1;
-}
-
-var rcompare_1;
-var hasRequiredRcompare;
-
-function requireRcompare () {
-	if (hasRequiredRcompare) return rcompare_1;
-	hasRequiredRcompare = 1;
-	const compare = requireCompare();
-	const rcompare = (a, b, loose) => compare(b, a, loose);
-	rcompare_1 = rcompare;
-	return rcompare_1;
-}
-
-var compareLoose_1;
-var hasRequiredCompareLoose;
-
-function requireCompareLoose () {
-	if (hasRequiredCompareLoose) return compareLoose_1;
-	hasRequiredCompareLoose = 1;
-	const compare = requireCompare();
-	const compareLoose = (a, b) => compare(a, b, true);
-	compareLoose_1 = compareLoose;
-	return compareLoose_1;
-}
-
-var compareBuild_1;
-var hasRequiredCompareBuild;
-
-function requireCompareBuild () {
-	if (hasRequiredCompareBuild) return compareBuild_1;
-	hasRequiredCompareBuild = 1;
-	const SemVer = requireSemver$1();
-	const compareBuild = (a, b, loose) => {
-	  const versionA = new SemVer(a, loose);
-	  const versionB = new SemVer(b, loose);
-	  return versionA.compare(versionB) || versionA.compareBuild(versionB)
-	};
-	compareBuild_1 = compareBuild;
-	return compareBuild_1;
-}
-
-var sort_1;
-var hasRequiredSort;
-
-function requireSort () {
-	if (hasRequiredSort) return sort_1;
-	hasRequiredSort = 1;
-	const compareBuild = requireCompareBuild();
-	const sort = (list, loose) => list.sort((a, b) => compareBuild(a, b, loose));
-	sort_1 = sort;
-	return sort_1;
-}
-
-var rsort_1;
-var hasRequiredRsort;
-
-function requireRsort () {
-	if (hasRequiredRsort) return rsort_1;
-	hasRequiredRsort = 1;
-	const compareBuild = requireCompareBuild();
-	const rsort = (list, loose) => list.sort((a, b) => compareBuild(b, a, loose));
-	rsort_1 = rsort;
-	return rsort_1;
-}
-
-var gt_1;
-var hasRequiredGt;
-
-function requireGt () {
-	if (hasRequiredGt) return gt_1;
-	hasRequiredGt = 1;
-	const compare = requireCompare();
-	const gt = (a, b, loose) => compare(a, b, loose) > 0;
-	gt_1 = gt;
-	return gt_1;
-}
-
-var lt_1;
-var hasRequiredLt;
-
-function requireLt () {
-	if (hasRequiredLt) return lt_1;
-	hasRequiredLt = 1;
-	const compare = requireCompare();
-	const lt = (a, b, loose) => compare(a, b, loose) < 0;
-	lt_1 = lt;
-	return lt_1;
-}
-
-var eq_1;
-var hasRequiredEq;
-
-function requireEq () {
-	if (hasRequiredEq) return eq_1;
-	hasRequiredEq = 1;
-	const compare = requireCompare();
-	const eq = (a, b, loose) => compare(a, b, loose) === 0;
-	eq_1 = eq;
-	return eq_1;
-}
-
-var neq_1;
-var hasRequiredNeq;
-
-function requireNeq () {
-	if (hasRequiredNeq) return neq_1;
-	hasRequiredNeq = 1;
-	const compare = requireCompare();
-	const neq = (a, b, loose) => compare(a, b, loose) !== 0;
-	neq_1 = neq;
-	return neq_1;
-}
-
-var gte_1;
-var hasRequiredGte;
-
-function requireGte () {
-	if (hasRequiredGte) return gte_1;
-	hasRequiredGte = 1;
-	const compare = requireCompare();
-	const gte = (a, b, loose) => compare(a, b, loose) >= 0;
-	gte_1 = gte;
-	return gte_1;
-}
-
-var lte_1;
-var hasRequiredLte;
-
-function requireLte () {
-	if (hasRequiredLte) return lte_1;
-	hasRequiredLte = 1;
-	const compare = requireCompare();
-	const lte = (a, b, loose) => compare(a, b, loose) <= 0;
-	lte_1 = lte;
-	return lte_1;
-}
-
-var cmp_1;
-var hasRequiredCmp;
-
-function requireCmp () {
-	if (hasRequiredCmp) return cmp_1;
-	hasRequiredCmp = 1;
-	const eq = requireEq();
-	const neq = requireNeq();
-	const gt = requireGt();
-	const gte = requireGte();
-	const lt = requireLt();
-	const lte = requireLte();
-
-	const cmp = (a, op, b, loose) => {
-	  switch (op) {
-	    case '===':
-	      if (typeof a === 'object') {
-	        a = a.version;
-	      }
-	      if (typeof b === 'object') {
-	        b = b.version;
-	      }
-	      return a === b
-
-	    case '!==':
-	      if (typeof a === 'object') {
-	        a = a.version;
-	      }
-	      if (typeof b === 'object') {
-	        b = b.version;
-	      }
-	      return a !== b
-
-	    case '':
-	    case '=':
-	    case '==':
-	      return eq(a, b, loose)
-
-	    case '!=':
-	      return neq(a, b, loose)
-
-	    case '>':
-	      return gt(a, b, loose)
-
-	    case '>=':
-	      return gte(a, b, loose)
-
-	    case '<':
-	      return lt(a, b, loose)
-
-	    case '<=':
-	      return lte(a, b, loose)
-
-	    default:
-	      throw new TypeError(`Invalid operator: ${op}`)
-	  }
-	};
-	cmp_1 = cmp;
-	return cmp_1;
-}
-
-var coerce_1;
-var hasRequiredCoerce;
-
-function requireCoerce () {
-	if (hasRequiredCoerce) return coerce_1;
-	hasRequiredCoerce = 1;
-	const SemVer = requireSemver$1();
-	const parse = requireParse();
-	const { safeRe: re, t } = requireRe();
-
-	const coerce = (version, options) => {
-	  if (version instanceof SemVer) {
-	    return version
-	  }
-
-	  if (typeof version === 'number') {
-	    version = String(version);
-	  }
-
-	  if (typeof version !== 'string') {
-	    return null
-	  }
-
-	  options = options || {};
-
-	  let match = null;
-	  if (!options.rtl) {
-	    match = version.match(re[t.COERCE]);
-	  } else {
-	    // Find the right-most coercible string that does not share
-	    // a terminus with a more left-ward coercible string.
-	    // Eg, '1.2.3.4' wants to coerce '2.3.4', not '3.4' or '4'
-	    //
-	    // Walk through the string checking with a /g regexp
-	    // Manually set the index so as to pick up overlapping matches.
-	    // Stop when we get a match that ends at the string end, since no
-	    // coercible string can be more right-ward without the same terminus.
-	    let next;
-	    while ((next = re[t.COERCERTL].exec(version)) &&
-	        (!match || match.index + match[0].length !== version.length)
-	    ) {
-	      if (!match ||
-	            next.index + next[0].length !== match.index + match[0].length) {
-	        match = next;
-	      }
-	      re[t.COERCERTL].lastIndex = next.index + next[1].length + next[2].length;
-	    }
-	    // leave it in a clean state
-	    re[t.COERCERTL].lastIndex = -1;
-	  }
-
-	  if (match === null) {
-	    return null
-	  }
-
-	  return parse(`${match[2]}.${match[3] || '0'}.${match[4] || '0'}`, options)
-	};
-	coerce_1 = coerce;
-	return coerce_1;
-}
-
-var iterator;
-var hasRequiredIterator;
-
-function requireIterator () {
-	if (hasRequiredIterator) return iterator;
-	hasRequiredIterator = 1;
-	iterator = function (Yallist) {
-	  Yallist.prototype[Symbol.iterator] = function* () {
-	    for (let walker = this.head; walker; walker = walker.next) {
-	      yield walker.value;
-	    }
-	  };
-	};
-	return iterator;
-}
-
-var yallist;
-var hasRequiredYallist;
-
-function requireYallist () {
-	if (hasRequiredYallist) return yallist;
-	hasRequiredYallist = 1;
-	yallist = Yallist;
-
-	Yallist.Node = Node;
-	Yallist.create = Yallist;
-
-	function Yallist (list) {
-	  var self = this;
-	  if (!(self instanceof Yallist)) {
-	    self = new Yallist();
-	  }
-
-	  self.tail = null;
-	  self.head = null;
-	  self.length = 0;
-
-	  if (list && typeof list.forEach === 'function') {
-	    list.forEach(function (item) {
-	      self.push(item);
-	    });
-	  } else if (arguments.length > 0) {
-	    for (var i = 0, l = arguments.length; i < l; i++) {
-	      self.push(arguments[i]);
-	    }
-	  }
-
-	  return self
-	}
-
-	Yallist.prototype.removeNode = function (node) {
-	  if (node.list !== this) {
-	    throw new Error('removing node which does not belong to this list')
-	  }
-
-	  var next = node.next;
-	  var prev = node.prev;
-
-	  if (next) {
-	    next.prev = prev;
-	  }
-
-	  if (prev) {
-	    prev.next = next;
-	  }
-
-	  if (node === this.head) {
-	    this.head = next;
-	  }
-	  if (node === this.tail) {
-	    this.tail = prev;
-	  }
-
-	  node.list.length--;
-	  node.next = null;
-	  node.prev = null;
-	  node.list = null;
-
-	  return next
-	};
-
-	Yallist.prototype.unshiftNode = function (node) {
-	  if (node === this.head) {
-	    return
-	  }
-
-	  if (node.list) {
-	    node.list.removeNode(node);
-	  }
-
-	  var head = this.head;
-	  node.list = this;
-	  node.next = head;
-	  if (head) {
-	    head.prev = node;
-	  }
-
-	  this.head = node;
-	  if (!this.tail) {
-	    this.tail = node;
-	  }
-	  this.length++;
-	};
-
-	Yallist.prototype.pushNode = function (node) {
-	  if (node === this.tail) {
-	    return
-	  }
-
-	  if (node.list) {
-	    node.list.removeNode(node);
-	  }
-
-	  var tail = this.tail;
-	  node.list = this;
-	  node.prev = tail;
-	  if (tail) {
-	    tail.next = node;
-	  }
-
-	  this.tail = node;
-	  if (!this.head) {
-	    this.head = node;
-	  }
-	  this.length++;
-	};
-
-	Yallist.prototype.push = function () {
-	  for (var i = 0, l = arguments.length; i < l; i++) {
-	    push(this, arguments[i]);
-	  }
-	  return this.length
-	};
-
-	Yallist.prototype.unshift = function () {
-	  for (var i = 0, l = arguments.length; i < l; i++) {
-	    unshift(this, arguments[i]);
-	  }
-	  return this.length
-	};
-
-	Yallist.prototype.pop = function () {
-	  if (!this.tail) {
-	    return undefined
-	  }
-
-	  var res = this.tail.value;
-	  this.tail = this.tail.prev;
-	  if (this.tail) {
-	    this.tail.next = null;
-	  } else {
-	    this.head = null;
-	  }
-	  this.length--;
-	  return res
-	};
-
-	Yallist.prototype.shift = function () {
-	  if (!this.head) {
-	    return undefined
-	  }
-
-	  var res = this.head.value;
-	  this.head = this.head.next;
-	  if (this.head) {
-	    this.head.prev = null;
-	  } else {
-	    this.tail = null;
-	  }
-	  this.length--;
-	  return res
-	};
-
-	Yallist.prototype.forEach = function (fn, thisp) {
-	  thisp = thisp || this;
-	  for (var walker = this.head, i = 0; walker !== null; i++) {
-	    fn.call(thisp, walker.value, i, this);
-	    walker = walker.next;
-	  }
-	};
-
-	Yallist.prototype.forEachReverse = function (fn, thisp) {
-	  thisp = thisp || this;
-	  for (var walker = this.tail, i = this.length - 1; walker !== null; i--) {
-	    fn.call(thisp, walker.value, i, this);
-	    walker = walker.prev;
-	  }
-	};
-
-	Yallist.prototype.get = function (n) {
-	  for (var i = 0, walker = this.head; walker !== null && i < n; i++) {
-	    // abort out of the list early if we hit a cycle
-	    walker = walker.next;
-	  }
-	  if (i === n && walker !== null) {
-	    return walker.value
-	  }
-	};
-
-	Yallist.prototype.getReverse = function (n) {
-	  for (var i = 0, walker = this.tail; walker !== null && i < n; i++) {
-	    // abort out of the list early if we hit a cycle
-	    walker = walker.prev;
-	  }
-	  if (i === n && walker !== null) {
-	    return walker.value
-	  }
-	};
-
-	Yallist.prototype.map = function (fn, thisp) {
-	  thisp = thisp || this;
-	  var res = new Yallist();
-	  for (var walker = this.head; walker !== null;) {
-	    res.push(fn.call(thisp, walker.value, this));
-	    walker = walker.next;
-	  }
-	  return res
-	};
-
-	Yallist.prototype.mapReverse = function (fn, thisp) {
-	  thisp = thisp || this;
-	  var res = new Yallist();
-	  for (var walker = this.tail; walker !== null;) {
-	    res.push(fn.call(thisp, walker.value, this));
-	    walker = walker.prev;
-	  }
-	  return res
-	};
-
-	Yallist.prototype.reduce = function (fn, initial) {
-	  var acc;
-	  var walker = this.head;
-	  if (arguments.length > 1) {
-	    acc = initial;
-	  } else if (this.head) {
-	    walker = this.head.next;
-	    acc = this.head.value;
-	  } else {
-	    throw new TypeError('Reduce of empty list with no initial value')
-	  }
-
-	  for (var i = 0; walker !== null; i++) {
-	    acc = fn(acc, walker.value, i);
-	    walker = walker.next;
-	  }
-
-	  return acc
-	};
-
-	Yallist.prototype.reduceReverse = function (fn, initial) {
-	  var acc;
-	  var walker = this.tail;
-	  if (arguments.length > 1) {
-	    acc = initial;
-	  } else if (this.tail) {
-	    walker = this.tail.prev;
-	    acc = this.tail.value;
-	  } else {
-	    throw new TypeError('Reduce of empty list with no initial value')
-	  }
-
-	  for (var i = this.length - 1; walker !== null; i--) {
-	    acc = fn(acc, walker.value, i);
-	    walker = walker.prev;
-	  }
-
-	  return acc
-	};
-
-	Yallist.prototype.toArray = function () {
-	  var arr = new Array(this.length);
-	  for (var i = 0, walker = this.head; walker !== null; i++) {
-	    arr[i] = walker.value;
-	    walker = walker.next;
-	  }
-	  return arr
-	};
-
-	Yallist.prototype.toArrayReverse = function () {
-	  var arr = new Array(this.length);
-	  for (var i = 0, walker = this.tail; walker !== null; i++) {
-	    arr[i] = walker.value;
-	    walker = walker.prev;
-	  }
-	  return arr
-	};
-
-	Yallist.prototype.slice = function (from, to) {
-	  to = to || this.length;
-	  if (to < 0) {
-	    to += this.length;
-	  }
-	  from = from || 0;
-	  if (from < 0) {
-	    from += this.length;
-	  }
-	  var ret = new Yallist();
-	  if (to < from || to < 0) {
-	    return ret
-	  }
-	  if (from < 0) {
-	    from = 0;
-	  }
-	  if (to > this.length) {
-	    to = this.length;
-	  }
-	  for (var i = 0, walker = this.head; walker !== null && i < from; i++) {
-	    walker = walker.next;
-	  }
-	  for (; walker !== null && i < to; i++, walker = walker.next) {
-	    ret.push(walker.value);
-	  }
-	  return ret
-	};
-
-	Yallist.prototype.sliceReverse = function (from, to) {
-	  to = to || this.length;
-	  if (to < 0) {
-	    to += this.length;
-	  }
-	  from = from || 0;
-	  if (from < 0) {
-	    from += this.length;
-	  }
-	  var ret = new Yallist();
-	  if (to < from || to < 0) {
-	    return ret
-	  }
-	  if (from < 0) {
-	    from = 0;
-	  }
-	  if (to > this.length) {
-	    to = this.length;
-	  }
-	  for (var i = this.length, walker = this.tail; walker !== null && i > to; i--) {
-	    walker = walker.prev;
-	  }
-	  for (; walker !== null && i > from; i--, walker = walker.prev) {
-	    ret.push(walker.value);
-	  }
-	  return ret
-	};
-
-	Yallist.prototype.splice = function (start, deleteCount, ...nodes) {
-	  if (start > this.length) {
-	    start = this.length - 1;
-	  }
-	  if (start < 0) {
-	    start = this.length + start;
-	  }
-
-	  for (var i = 0, walker = this.head; walker !== null && i < start; i++) {
-	    walker = walker.next;
-	  }
-
-	  var ret = [];
-	  for (var i = 0; walker && i < deleteCount; i++) {
-	    ret.push(walker.value);
-	    walker = this.removeNode(walker);
-	  }
-	  if (walker === null) {
-	    walker = this.tail;
-	  }
-
-	  if (walker !== this.head && walker !== this.tail) {
-	    walker = walker.prev;
-	  }
-
-	  for (var i = 0; i < nodes.length; i++) {
-	    walker = insert(this, walker, nodes[i]);
-	  }
-	  return ret;
-	};
-
-	Yallist.prototype.reverse = function () {
-	  var head = this.head;
-	  var tail = this.tail;
-	  for (var walker = head; walker !== null; walker = walker.prev) {
-	    var p = walker.prev;
-	    walker.prev = walker.next;
-	    walker.next = p;
-	  }
-	  this.head = tail;
-	  this.tail = head;
-	  return this
-	};
-
-	function insert (self, node, value) {
-	  var inserted = node === self.head ?
-	    new Node(value, null, node, self) :
-	    new Node(value, node, node.next, self);
-
-	  if (inserted.next === null) {
-	    self.tail = inserted;
-	  }
-	  if (inserted.prev === null) {
-	    self.head = inserted;
-	  }
-
-	  self.length++;
-
-	  return inserted
-	}
-
-	function push (self, item) {
-	  self.tail = new Node(item, self.tail, null, self);
-	  if (!self.head) {
-	    self.head = self.tail;
-	  }
-	  self.length++;
-	}
-
-	function unshift (self, item) {
-	  self.head = new Node(item, null, self.head, self);
-	  if (!self.tail) {
-	    self.tail = self.head;
-	  }
-	  self.length++;
-	}
-
-	function Node (value, prev, next, list) {
-	  if (!(this instanceof Node)) {
-	    return new Node(value, prev, next, list)
-	  }
-
-	  this.list = list;
-	  this.value = value;
-
-	  if (prev) {
-	    prev.next = this;
-	    this.prev = prev;
-	  } else {
-	    this.prev = null;
-	  }
-
-	  if (next) {
-	    next.prev = this;
-	    this.next = next;
-	  } else {
-	    this.next = null;
-	  }
-	}
-
-	try {
-	  // add if support for Symbol.iterator is present
-	  requireIterator()(Yallist);
-	} catch (er) {}
-	return yallist;
-}
-
-var lruCache;
-var hasRequiredLruCache;
-
-function requireLruCache () {
-	if (hasRequiredLruCache) return lruCache;
-	hasRequiredLruCache = 1;
-
-	// A linked list to keep track of recently-used-ness
-	const Yallist = requireYallist();
-
-	const MAX = Symbol('max');
-	const LENGTH = Symbol('length');
-	const LENGTH_CALCULATOR = Symbol('lengthCalculator');
-	const ALLOW_STALE = Symbol('allowStale');
-	const MAX_AGE = Symbol('maxAge');
-	const DISPOSE = Symbol('dispose');
-	const NO_DISPOSE_ON_SET = Symbol('noDisposeOnSet');
-	const LRU_LIST = Symbol('lruList');
-	const CACHE = Symbol('cache');
-	const UPDATE_AGE_ON_GET = Symbol('updateAgeOnGet');
-
-	const naiveLength = () => 1;
-
-	// lruList is a yallist where the head is the youngest
-	// item, and the tail is the oldest.  the list contains the Hit
-	// objects as the entries.
-	// Each Hit object has a reference to its Yallist.Node.  This
-	// never changes.
-	//
-	// cache is a Map (or PseudoMap) that matches the keys to
-	// the Yallist.Node object.
-	class LRUCache {
-	  constructor (options) {
-	    if (typeof options === 'number')
-	      options = { max: options };
-
-	    if (!options)
-	      options = {};
-
-	    if (options.max && (typeof options.max !== 'number' || options.max < 0))
-	      throw new TypeError('max must be a non-negative number')
-	    // Kind of weird to have a default max of Infinity, but oh well.
-	    this[MAX] = options.max || Infinity;
-
-	    const lc = options.length || naiveLength;
-	    this[LENGTH_CALCULATOR] = (typeof lc !== 'function') ? naiveLength : lc;
-	    this[ALLOW_STALE] = options.stale || false;
-	    if (options.maxAge && typeof options.maxAge !== 'number')
-	      throw new TypeError('maxAge must be a number')
-	    this[MAX_AGE] = options.maxAge || 0;
-	    this[DISPOSE] = options.dispose;
-	    this[NO_DISPOSE_ON_SET] = options.noDisposeOnSet || false;
-	    this[UPDATE_AGE_ON_GET] = options.updateAgeOnGet || false;
-	    this.reset();
-	  }
-
-	  // resize the cache when the max changes.
-	  set max (mL) {
-	    if (typeof mL !== 'number' || mL < 0)
-	      throw new TypeError('max must be a non-negative number')
-
-	    this[MAX] = mL || Infinity;
-	    trim(this);
-	  }
-	  get max () {
-	    return this[MAX]
-	  }
-
-	  set allowStale (allowStale) {
-	    this[ALLOW_STALE] = !!allowStale;
-	  }
-	  get allowStale () {
-	    return this[ALLOW_STALE]
-	  }
-
-	  set maxAge (mA) {
-	    if (typeof mA !== 'number')
-	      throw new TypeError('maxAge must be a non-negative number')
-
-	    this[MAX_AGE] = mA;
-	    trim(this);
-	  }
-	  get maxAge () {
-	    return this[MAX_AGE]
-	  }
-
-	  // resize the cache when the lengthCalculator changes.
-	  set lengthCalculator (lC) {
-	    if (typeof lC !== 'function')
-	      lC = naiveLength;
-
-	    if (lC !== this[LENGTH_CALCULATOR]) {
-	      this[LENGTH_CALCULATOR] = lC;
-	      this[LENGTH] = 0;
-	      this[LRU_LIST].forEach(hit => {
-	        hit.length = this[LENGTH_CALCULATOR](hit.value, hit.key);
-	        this[LENGTH] += hit.length;
-	      });
-	    }
-	    trim(this);
-	  }
-	  get lengthCalculator () { return this[LENGTH_CALCULATOR] }
-
-	  get length () { return this[LENGTH] }
-	  get itemCount () { return this[LRU_LIST].length }
-
-	  rforEach (fn, thisp) {
-	    thisp = thisp || this;
-	    for (let walker = this[LRU_LIST].tail; walker !== null;) {
-	      const prev = walker.prev;
-	      forEachStep(this, fn, walker, thisp);
-	      walker = prev;
-	    }
-	  }
-
-	  forEach (fn, thisp) {
-	    thisp = thisp || this;
-	    for (let walker = this[LRU_LIST].head; walker !== null;) {
-	      const next = walker.next;
-	      forEachStep(this, fn, walker, thisp);
-	      walker = next;
-	    }
-	  }
-
-	  keys () {
-	    return this[LRU_LIST].toArray().map(k => k.key)
-	  }
-
-	  values () {
-	    return this[LRU_LIST].toArray().map(k => k.value)
-	  }
-
-	  reset () {
-	    if (this[DISPOSE] &&
-	        this[LRU_LIST] &&
-	        this[LRU_LIST].length) {
-	      this[LRU_LIST].forEach(hit => this[DISPOSE](hit.key, hit.value));
-	    }
-
-	    this[CACHE] = new Map(); // hash of items by key
-	    this[LRU_LIST] = new Yallist(); // list of items in order of use recency
-	    this[LENGTH] = 0; // length of items in the list
-	  }
-
-	  dump () {
-	    return this[LRU_LIST].map(hit =>
-	      isStale(this, hit) ? false : {
-	        k: hit.key,
-	        v: hit.value,
-	        e: hit.now + (hit.maxAge || 0)
-	      }).toArray().filter(h => h)
-	  }
-
-	  dumpLru () {
-	    return this[LRU_LIST]
-	  }
-
-	  set (key, value, maxAge) {
-	    maxAge = maxAge || this[MAX_AGE];
-
-	    if (maxAge && typeof maxAge !== 'number')
-	      throw new TypeError('maxAge must be a number')
-
-	    const now = maxAge ? Date.now() : 0;
-	    const len = this[LENGTH_CALCULATOR](value, key);
-
-	    if (this[CACHE].has(key)) {
-	      if (len > this[MAX]) {
-	        del(this, this[CACHE].get(key));
-	        return false
-	      }
-
-	      const node = this[CACHE].get(key);
-	      const item = node.value;
-
-	      // dispose of the old one before overwriting
-	      // split out into 2 ifs for better coverage tracking
-	      if (this[DISPOSE]) {
-	        if (!this[NO_DISPOSE_ON_SET])
-	          this[DISPOSE](key, item.value);
-	      }
-
-	      item.now = now;
-	      item.maxAge = maxAge;
-	      item.value = value;
-	      this[LENGTH] += len - item.length;
-	      item.length = len;
-	      this.get(key);
-	      trim(this);
-	      return true
-	    }
-
-	    const hit = new Entry(key, value, len, now, maxAge);
-
-	    // oversized objects fall out of cache automatically.
-	    if (hit.length > this[MAX]) {
-	      if (this[DISPOSE])
-	        this[DISPOSE](key, value);
-
-	      return false
-	    }
-
-	    this[LENGTH] += hit.length;
-	    this[LRU_LIST].unshift(hit);
-	    this[CACHE].set(key, this[LRU_LIST].head);
-	    trim(this);
-	    return true
-	  }
-
-	  has (key) {
-	    if (!this[CACHE].has(key)) return false
-	    const hit = this[CACHE].get(key).value;
-	    return !isStale(this, hit)
-	  }
-
-	  get (key) {
-	    return get(this, key, true)
-	  }
-
-	  peek (key) {
-	    return get(this, key, false)
-	  }
-
-	  pop () {
-	    const node = this[LRU_LIST].tail;
-	    if (!node)
-	      return null
-
-	    del(this, node);
-	    return node.value
-	  }
-
-	  del (key) {
-	    del(this, this[CACHE].get(key));
-	  }
-
-	  load (arr) {
-	    // reset the cache
-	    this.reset();
-
-	    const now = Date.now();
-	    // A previous serialized cache has the most recent items first
-	    for (let l = arr.length - 1; l >= 0; l--) {
-	      const hit = arr[l];
-	      const expiresAt = hit.e || 0;
-	      if (expiresAt === 0)
-	        // the item was created without expiration in a non aged cache
-	        this.set(hit.k, hit.v);
-	      else {
-	        const maxAge = expiresAt - now;
-	        // dont add already expired items
-	        if (maxAge > 0) {
-	          this.set(hit.k, hit.v, maxAge);
-	        }
-	      }
-	    }
-	  }
-
-	  prune () {
-	    this[CACHE].forEach((value, key) => get(this, key, false));
-	  }
-	}
-
-	const get = (self, key, doUse) => {
-	  const node = self[CACHE].get(key);
-	  if (node) {
-	    const hit = node.value;
-	    if (isStale(self, hit)) {
-	      del(self, node);
-	      if (!self[ALLOW_STALE])
-	        return undefined
-	    } else {
-	      if (doUse) {
-	        if (self[UPDATE_AGE_ON_GET])
-	          node.value.now = Date.now();
-	        self[LRU_LIST].unshiftNode(node);
-	      }
-	    }
-	    return hit.value
-	  }
-	};
-
-	const isStale = (self, hit) => {
-	  if (!hit || (!hit.maxAge && !self[MAX_AGE]))
-	    return false
-
-	  const diff = Date.now() - hit.now;
-	  return hit.maxAge ? diff > hit.maxAge
-	    : self[MAX_AGE] && (diff > self[MAX_AGE])
-	};
-
-	const trim = self => {
-	  if (self[LENGTH] > self[MAX]) {
-	    for (let walker = self[LRU_LIST].tail;
-	      self[LENGTH] > self[MAX] && walker !== null;) {
-	      // We know that we're about to delete this one, and also
-	      // what the next least recently used key will be, so just
-	      // go ahead and set it now.
-	      const prev = walker.prev;
-	      del(self, walker);
-	      walker = prev;
-	    }
-	  }
-	};
-
-	const del = (self, node) => {
-	  if (node) {
-	    const hit = node.value;
-	    if (self[DISPOSE])
-	      self[DISPOSE](hit.key, hit.value);
-
-	    self[LENGTH] -= hit.length;
-	    self[CACHE].delete(hit.key);
-	    self[LRU_LIST].removeNode(node);
-	  }
-	};
-
-	class Entry {
-	  constructor (key, value, length, now, maxAge) {
-	    this.key = key;
-	    this.value = value;
-	    this.length = length;
-	    this.now = now;
-	    this.maxAge = maxAge || 0;
-	  }
-	}
-
-	const forEachStep = (self, fn, node, thisp) => {
-	  let hit = node.value;
-	  if (isStale(self, hit)) {
-	    del(self, node);
-	    if (!self[ALLOW_STALE])
-	      hit = undefined;
-	  }
-	  if (hit)
-	    fn.call(thisp, hit.value, hit.key, self);
-	};
-
-	lruCache = LRUCache;
-	return lruCache;
-}
+var lrucache = LRUCache;
 
 var range;
 var hasRequiredRange;
@@ -12592,6 +11650,8 @@ var hasRequiredRange;
 function requireRange () {
 	if (hasRequiredRange) return range;
 	hasRequiredRange = 1;
+	const SPACE_CHARACTERS = /\s+/g;
+
 	// hoisted class for cyclic dependency
 	class Range {
 	  constructor (range, options) {
@@ -12612,7 +11672,7 @@ function requireRange () {
 	      // just put it in the set and return
 	      this.raw = range.value;
 	      this.set = [[range]];
-	      this.format();
+	      this.formatted = undefined;
 	      return this
 	    }
 
@@ -12623,10 +11683,7 @@ function requireRange () {
 	    // First reduce all whitespace as much as possible so we do not have to rely
 	    // on potentially slow regexes like \s*. This is then stored and used for
 	    // future error messages as well.
-	    this.raw = range
-	      .trim()
-	      .split(/\s+/)
-	      .join(' ');
+	    this.raw = range.trim().replace(SPACE_CHARACTERS, ' ');
 
 	    // First, split on ||
 	    this.set = this.raw
@@ -12660,14 +11717,29 @@ function requireRange () {
 	      }
 	    }
 
-	    this.format();
+	    this.formatted = undefined;
+	  }
+
+	  get range () {
+	    if (this.formatted === undefined) {
+	      this.formatted = '';
+	      for (let i = 0; i < this.set.length; i++) {
+	        if (i > 0) {
+	          this.formatted += '||';
+	        }
+	        const comps = this.set[i];
+	        for (let k = 0; k < comps.length; k++) {
+	          if (k > 0) {
+	            this.formatted += ' ';
+	          }
+	          this.formatted += comps[k].toString().trim();
+	        }
+	      }
+	    }
+	    return this.formatted
 	  }
 
 	  format () {
-	    this.range = this.set
-	      .map((comps) => comps.join(' ').trim())
-	      .join('||')
-	      .trim();
 	    return this.range
 	  }
 
@@ -12792,21 +11864,21 @@ function requireRange () {
 
 	range = Range;
 
-	const LRU = requireLruCache();
-	const cache = new LRU({ max: 1000 });
+	const LRU = lrucache;
+	const cache = new LRU();
 
-	const parseOptions = requireParseOptions();
+	const parseOptions = parseOptions_1;
 	const Comparator = requireComparator();
-	const debug = requireDebug();
-	const SemVer = requireSemver$1();
+	const debug = debug_1;
+	const SemVer = semver$2;
 	const {
 	  safeRe: re,
 	  t,
 	  comparatorTrimReplace,
 	  tildeTrimReplace,
 	  caretTrimReplace,
-	} = requireRe();
-	const { FLAG_INCLUDE_PRERELEASE, FLAG_LOOSE } = requireConstants();
+	} = reExports;
+	const { FLAG_INCLUDE_PRERELEASE, FLAG_LOOSE } = constants$1;
 
 	const isNullSet = c => c.value === '<0.0.0-0';
 	const isAny = c => c.value === '';
@@ -13064,9 +12136,10 @@ function requireRange () {
 	// 1.2 - 3.4.5 => >=1.2.0 <=3.4.5
 	// 1.2.3 - 3.4 => >=1.2.0 <3.5.0-0 Any 3.4.x will do
 	// 1.2 - 3.4 => >=1.2.0 <3.5.0-0
+	// TODO build?
 	const hyphenReplace = incPr => ($0,
 	  from, fM, fm, fp, fpr, fb,
-	  to, tM, tm, tp, tpr, tb) => {
+	  to, tM, tm, tp, tpr) => {
 	  if (isX(fM)) {
 	    from = '';
 	  } else if (isX(fm)) {
@@ -13275,756 +12348,648 @@ function requireComparator () {
 
 	comparator = Comparator;
 
-	const parseOptions = requireParseOptions();
-	const { safeRe: re, t } = requireRe();
-	const cmp = requireCmp();
-	const debug = requireDebug();
-	const SemVer = requireSemver$1();
+	const parseOptions = parseOptions_1;
+	const { safeRe: re, t } = reExports;
+	const cmp = cmp_1;
+	const debug = debug_1;
+	const SemVer = semver$2;
 	const Range = requireRange();
 	return comparator;
 }
 
-var satisfies_1;
-var hasRequiredSatisfies;
-
-function requireSatisfies () {
-	if (hasRequiredSatisfies) return satisfies_1;
-	hasRequiredSatisfies = 1;
-	const Range = requireRange();
-	const satisfies = (version, range, options) => {
-	  try {
-	    range = new Range(range, options);
-	  } catch (er) {
-	    return false
-	  }
-	  return range.test(version)
-	};
-	satisfies_1 = satisfies;
-	return satisfies_1;
-}
-
-var toComparators_1;
-var hasRequiredToComparators;
-
-function requireToComparators () {
-	if (hasRequiredToComparators) return toComparators_1;
-	hasRequiredToComparators = 1;
-	const Range = requireRange();
-
-	// Mostly just for testing and legacy API reasons
-	const toComparators = (range, options) =>
-	  new Range(range, options).set
-	    .map(comp => comp.map(c => c.value).join(' ').trim().split(' '));
-
-	toComparators_1 = toComparators;
-	return toComparators_1;
-}
-
-var maxSatisfying_1;
-var hasRequiredMaxSatisfying;
-
-function requireMaxSatisfying () {
-	if (hasRequiredMaxSatisfying) return maxSatisfying_1;
-	hasRequiredMaxSatisfying = 1;
-	const SemVer = requireSemver$1();
-	const Range = requireRange();
-
-	const maxSatisfying = (versions, range, options) => {
-	  let max = null;
-	  let maxSV = null;
-	  let rangeObj = null;
-	  try {
-	    rangeObj = new Range(range, options);
-	  } catch (er) {
-	    return null
-	  }
-	  versions.forEach((v) => {
-	    if (rangeObj.test(v)) {
-	      // satisfies(v, range, options)
-	      if (!max || maxSV.compare(v) === -1) {
-	        // compare(max, v, true)
-	        max = v;
-	        maxSV = new SemVer(max, options);
-	      }
-	    }
-	  });
-	  return max
-	};
-	maxSatisfying_1 = maxSatisfying;
-	return maxSatisfying_1;
-}
-
-var minSatisfying_1;
-var hasRequiredMinSatisfying;
-
-function requireMinSatisfying () {
-	if (hasRequiredMinSatisfying) return minSatisfying_1;
-	hasRequiredMinSatisfying = 1;
-	const SemVer = requireSemver$1();
-	const Range = requireRange();
-	const minSatisfying = (versions, range, options) => {
-	  let min = null;
-	  let minSV = null;
-	  let rangeObj = null;
-	  try {
-	    rangeObj = new Range(range, options);
-	  } catch (er) {
-	    return null
-	  }
-	  versions.forEach((v) => {
-	    if (rangeObj.test(v)) {
-	      // satisfies(v, range, options)
-	      if (!min || minSV.compare(v) === 1) {
-	        // compare(min, v, true)
-	        min = v;
-	        minSV = new SemVer(min, options);
-	      }
-	    }
-	  });
-	  return min
-	};
-	minSatisfying_1 = minSatisfying;
-	return minSatisfying_1;
-}
-
-var minVersion_1;
-var hasRequiredMinVersion;
-
-function requireMinVersion () {
-	if (hasRequiredMinVersion) return minVersion_1;
-	hasRequiredMinVersion = 1;
-	const SemVer = requireSemver$1();
-	const Range = requireRange();
-	const gt = requireGt();
-
-	const minVersion = (range, loose) => {
-	  range = new Range(range, loose);
-
-	  let minver = new SemVer('0.0.0');
-	  if (range.test(minver)) {
-	    return minver
-	  }
-
-	  minver = new SemVer('0.0.0-0');
-	  if (range.test(minver)) {
-	    return minver
-	  }
-
-	  minver = null;
-	  for (let i = 0; i < range.set.length; ++i) {
-	    const comparators = range.set[i];
-
-	    let setMin = null;
-	    comparators.forEach((comparator) => {
-	      // Clone to avoid manipulating the comparator's semver object.
-	      const compver = new SemVer(comparator.semver.version);
-	      switch (comparator.operator) {
-	        case '>':
-	          if (compver.prerelease.length === 0) {
-	            compver.patch++;
-	          } else {
-	            compver.prerelease.push(0);
-	          }
-	          compver.raw = compver.format();
-	          /* fallthrough */
-	        case '':
-	        case '>=':
-	          if (!setMin || gt(compver, setMin)) {
-	            setMin = compver;
-	          }
-	          break
-	        case '<':
-	        case '<=':
-	          /* Ignore maximum versions */
-	          break
-	        /* istanbul ignore next */
-	        default:
-	          throw new Error(`Unexpected operation: ${comparator.operator}`)
-	      }
-	    });
-	    if (setMin && (!minver || gt(minver, setMin))) {
-	      minver = setMin;
-	    }
-	  }
-
-	  if (minver && range.test(minver)) {
-	    return minver
-	  }
-
-	  return null
-	};
-	minVersion_1 = minVersion;
-	return minVersion_1;
-}
-
-var valid;
-var hasRequiredValid;
-
-function requireValid () {
-	if (hasRequiredValid) return valid;
-	hasRequiredValid = 1;
-	const Range = requireRange();
-	const validRange = (range, options) => {
-	  try {
-	    // Return '*' instead of '' so that truthiness works.
-	    // This will throw if it's invalid anyway
-	    return new Range(range, options).range || '*'
-	  } catch (er) {
-	    return null
-	  }
-	};
-	valid = validRange;
-	return valid;
-}
-
-var outside_1;
-var hasRequiredOutside;
-
-function requireOutside () {
-	if (hasRequiredOutside) return outside_1;
-	hasRequiredOutside = 1;
-	const SemVer = requireSemver$1();
-	const Comparator = requireComparator();
-	const { ANY } = Comparator;
-	const Range = requireRange();
-	const satisfies = requireSatisfies();
-	const gt = requireGt();
-	const lt = requireLt();
-	const lte = requireLte();
-	const gte = requireGte();
-
-	const outside = (version, range, hilo, options) => {
-	  version = new SemVer(version, options);
-	  range = new Range(range, options);
-
-	  let gtfn, ltefn, ltfn, comp, ecomp;
-	  switch (hilo) {
-	    case '>':
-	      gtfn = gt;
-	      ltefn = lte;
-	      ltfn = lt;
-	      comp = '>';
-	      ecomp = '>=';
-	      break
-	    case '<':
-	      gtfn = lt;
-	      ltefn = gte;
-	      ltfn = gt;
-	      comp = '<';
-	      ecomp = '<=';
-	      break
-	    default:
-	      throw new TypeError('Must provide a hilo val of "<" or ">"')
-	  }
-
-	  // If it satisfies the range it is not outside
-	  if (satisfies(version, range, options)) {
-	    return false
-	  }
-
-	  // From now on, variable terms are as if we're in "gtr" mode.
-	  // but note that everything is flipped for the "ltr" function.
-
-	  for (let i = 0; i < range.set.length; ++i) {
-	    const comparators = range.set[i];
-
-	    let high = null;
-	    let low = null;
-
-	    comparators.forEach((comparator) => {
-	      if (comparator.semver === ANY) {
-	        comparator = new Comparator('>=0.0.0');
-	      }
-	      high = high || comparator;
-	      low = low || comparator;
-	      if (gtfn(comparator.semver, high.semver, options)) {
-	        high = comparator;
-	      } else if (ltfn(comparator.semver, low.semver, options)) {
-	        low = comparator;
-	      }
-	    });
-
-	    // If the edge version comparator has a operator then our version
-	    // isn't outside it
-	    if (high.operator === comp || high.operator === ecomp) {
-	      return false
-	    }
-
-	    // If the lowest version comparator has an operator and our version
-	    // is less than it then it isn't higher than the range
-	    if ((!low.operator || low.operator === comp) &&
-	        ltefn(version, low.semver)) {
-	      return false
-	    } else if (low.operator === ecomp && ltfn(version, low.semver)) {
-	      return false
-	    }
-	  }
-	  return true
-	};
-
-	outside_1 = outside;
-	return outside_1;
-}
-
-var gtr_1;
-var hasRequiredGtr;
-
-function requireGtr () {
-	if (hasRequiredGtr) return gtr_1;
-	hasRequiredGtr = 1;
-	// Determine if version is greater than all the versions possible in the range.
-	const outside = requireOutside();
-	const gtr = (version, range, options) => outside(version, range, '>', options);
-	gtr_1 = gtr;
-	return gtr_1;
-}
-
-var ltr_1;
-var hasRequiredLtr;
-
-function requireLtr () {
-	if (hasRequiredLtr) return ltr_1;
-	hasRequiredLtr = 1;
-	const outside = requireOutside();
-	// Determine if version is less than all the versions possible in the range
-	const ltr = (version, range, options) => outside(version, range, '<', options);
-	ltr_1 = ltr;
-	return ltr_1;
-}
-
-var intersects_1;
-var hasRequiredIntersects;
-
-function requireIntersects () {
-	if (hasRequiredIntersects) return intersects_1;
-	hasRequiredIntersects = 1;
-	const Range = requireRange();
-	const intersects = (r1, r2, options) => {
-	  r1 = new Range(r1, options);
-	  r2 = new Range(r2, options);
-	  return r1.intersects(r2, options)
-	};
-	intersects_1 = intersects;
-	return intersects_1;
-}
-
-var simplify;
-var hasRequiredSimplify;
-
-function requireSimplify () {
-	if (hasRequiredSimplify) return simplify;
-	hasRequiredSimplify = 1;
-	// given a set of versions and a range, create a "simplified" range
-	// that includes the same versions that the original range does
-	// If the original range is shorter than the simplified one, return that.
-	const satisfies = requireSatisfies();
-	const compare = requireCompare();
-	simplify = (versions, range, options) => {
-	  const set = [];
-	  let first = null;
-	  let prev = null;
-	  const v = versions.sort((a, b) => compare(a, b, options));
-	  for (const version of v) {
-	    const included = satisfies(version, range, options);
-	    if (included) {
-	      prev = version;
-	      if (!first) {
-	        first = version;
-	      }
-	    } else {
-	      if (prev) {
-	        set.push([first, prev]);
-	      }
-	      prev = null;
-	      first = null;
-	    }
-	  }
-	  if (first) {
-	    set.push([first, null]);
-	  }
-
-	  const ranges = [];
-	  for (const [min, max] of set) {
-	    if (min === max) {
-	      ranges.push(min);
-	    } else if (!max && min === v[0]) {
-	      ranges.push('*');
-	    } else if (!max) {
-	      ranges.push(`>=${min}`);
-	    } else if (min === v[0]) {
-	      ranges.push(`<=${max}`);
-	    } else {
-	      ranges.push(`${min} - ${max}`);
-	    }
-	  }
-	  const simplified = ranges.join(' || ');
-	  const original = typeof range.raw === 'string' ? range.raw : String(range);
-	  return simplified.length < original.length ? simplified : range
-	};
-	return simplify;
-}
-
-var subset_1;
-var hasRequiredSubset;
-
-function requireSubset () {
-	if (hasRequiredSubset) return subset_1;
-	hasRequiredSubset = 1;
-	const Range = requireRange();
-	const Comparator = requireComparator();
-	const { ANY } = Comparator;
-	const satisfies = requireSatisfies();
-	const compare = requireCompare();
-
-	// Complex range `r1 || r2 || ...` is a subset of `R1 || R2 || ...` iff:
-	// - Every simple range `r1, r2, ...` is a null set, OR
-	// - Every simple range `r1, r2, ...` which is not a null set is a subset of
-	//   some `R1, R2, ...`
-	//
-	// Simple range `c1 c2 ...` is a subset of simple range `C1 C2 ...` iff:
-	// - If c is only the ANY comparator
-	//   - If C is only the ANY comparator, return true
-	//   - Else if in prerelease mode, return false
-	//   - else replace c with `[>=0.0.0]`
-	// - If C is only the ANY comparator
-	//   - if in prerelease mode, return true
-	//   - else replace C with `[>=0.0.0]`
-	// - Let EQ be the set of = comparators in c
-	// - If EQ is more than one, return true (null set)
-	// - Let GT be the highest > or >= comparator in c
-	// - Let LT be the lowest < or <= comparator in c
-	// - If GT and LT, and GT.semver > LT.semver, return true (null set)
-	// - If any C is a = range, and GT or LT are set, return false
-	// - If EQ
-	//   - If GT, and EQ does not satisfy GT, return true (null set)
-	//   - If LT, and EQ does not satisfy LT, return true (null set)
-	//   - If EQ satisfies every C, return true
-	//   - Else return false
-	// - If GT
-	//   - If GT.semver is lower than any > or >= comp in C, return false
-	//   - If GT is >=, and GT.semver does not satisfy every C, return false
-	//   - If GT.semver has a prerelease, and not in prerelease mode
-	//     - If no C has a prerelease and the GT.semver tuple, return false
-	// - If LT
-	//   - If LT.semver is greater than any < or <= comp in C, return false
-	//   - If LT is <=, and LT.semver does not satisfy every C, return false
-	//   - If GT.semver has a prerelease, and not in prerelease mode
-	//     - If no C has a prerelease and the LT.semver tuple, return false
-	// - Else return true
-
-	const subset = (sub, dom, options = {}) => {
-	  if (sub === dom) {
-	    return true
-	  }
-
-	  sub = new Range(sub, options);
-	  dom = new Range(dom, options);
-	  let sawNonNull = false;
-
-	  OUTER: for (const simpleSub of sub.set) {
-	    for (const simpleDom of dom.set) {
-	      const isSub = simpleSubset(simpleSub, simpleDom, options);
-	      sawNonNull = sawNonNull || isSub !== null;
-	      if (isSub) {
-	        continue OUTER
-	      }
-	    }
-	    // the null set is a subset of everything, but null simple ranges in
-	    // a complex range should be ignored.  so if we saw a non-null range,
-	    // then we know this isn't a subset, but if EVERY simple range was null,
-	    // then it is a subset.
-	    if (sawNonNull) {
-	      return false
-	    }
-	  }
-	  return true
-	};
-
-	const minimumVersionWithPreRelease = [new Comparator('>=0.0.0-0')];
-	const minimumVersion = [new Comparator('>=0.0.0')];
-
-	const simpleSubset = (sub, dom, options) => {
-	  if (sub === dom) {
-	    return true
-	  }
-
-	  if (sub.length === 1 && sub[0].semver === ANY) {
-	    if (dom.length === 1 && dom[0].semver === ANY) {
-	      return true
-	    } else if (options.includePrerelease) {
-	      sub = minimumVersionWithPreRelease;
-	    } else {
-	      sub = minimumVersion;
-	    }
-	  }
-
-	  if (dom.length === 1 && dom[0].semver === ANY) {
-	    if (options.includePrerelease) {
-	      return true
-	    } else {
-	      dom = minimumVersion;
-	    }
-	  }
-
-	  const eqSet = new Set();
-	  let gt, lt;
-	  for (const c of sub) {
-	    if (c.operator === '>' || c.operator === '>=') {
-	      gt = higherGT(gt, c, options);
-	    } else if (c.operator === '<' || c.operator === '<=') {
-	      lt = lowerLT(lt, c, options);
-	    } else {
-	      eqSet.add(c.semver);
-	    }
-	  }
-
-	  if (eqSet.size > 1) {
-	    return null
-	  }
-
-	  let gtltComp;
-	  if (gt && lt) {
-	    gtltComp = compare(gt.semver, lt.semver, options);
-	    if (gtltComp > 0) {
-	      return null
-	    } else if (gtltComp === 0 && (gt.operator !== '>=' || lt.operator !== '<=')) {
-	      return null
-	    }
-	  }
-
-	  // will iterate one or zero times
-	  for (const eq of eqSet) {
-	    if (gt && !satisfies(eq, String(gt), options)) {
-	      return null
-	    }
-
-	    if (lt && !satisfies(eq, String(lt), options)) {
-	      return null
-	    }
-
-	    for (const c of dom) {
-	      if (!satisfies(eq, String(c), options)) {
-	        return false
-	      }
-	    }
-
-	    return true
-	  }
-
-	  let higher, lower;
-	  let hasDomLT, hasDomGT;
-	  // if the subset has a prerelease, we need a comparator in the superset
-	  // with the same tuple and a prerelease, or it's not a subset
-	  let needDomLTPre = lt &&
-	    !options.includePrerelease &&
-	    lt.semver.prerelease.length ? lt.semver : false;
-	  let needDomGTPre = gt &&
-	    !options.includePrerelease &&
-	    gt.semver.prerelease.length ? gt.semver : false;
-	  // exception: <1.2.3-0 is the same as <1.2.3
-	  if (needDomLTPre && needDomLTPre.prerelease.length === 1 &&
-	      lt.operator === '<' && needDomLTPre.prerelease[0] === 0) {
-	    needDomLTPre = false;
-	  }
-
-	  for (const c of dom) {
-	    hasDomGT = hasDomGT || c.operator === '>' || c.operator === '>=';
-	    hasDomLT = hasDomLT || c.operator === '<' || c.operator === '<=';
-	    if (gt) {
-	      if (needDomGTPre) {
-	        if (c.semver.prerelease && c.semver.prerelease.length &&
-	            c.semver.major === needDomGTPre.major &&
-	            c.semver.minor === needDomGTPre.minor &&
-	            c.semver.patch === needDomGTPre.patch) {
-	          needDomGTPre = false;
-	        }
-	      }
-	      if (c.operator === '>' || c.operator === '>=') {
-	        higher = higherGT(gt, c, options);
-	        if (higher === c && higher !== gt) {
-	          return false
-	        }
-	      } else if (gt.operator === '>=' && !satisfies(gt.semver, String(c), options)) {
-	        return false
-	      }
-	    }
-	    if (lt) {
-	      if (needDomLTPre) {
-	        if (c.semver.prerelease && c.semver.prerelease.length &&
-	            c.semver.major === needDomLTPre.major &&
-	            c.semver.minor === needDomLTPre.minor &&
-	            c.semver.patch === needDomLTPre.patch) {
-	          needDomLTPre = false;
-	        }
-	      }
-	      if (c.operator === '<' || c.operator === '<=') {
-	        lower = lowerLT(lt, c, options);
-	        if (lower === c && lower !== lt) {
-	          return false
-	        }
-	      } else if (lt.operator === '<=' && !satisfies(lt.semver, String(c), options)) {
-	        return false
-	      }
-	    }
-	    if (!c.operator && (lt || gt) && gtltComp !== 0) {
-	      return false
-	    }
-	  }
-
-	  // if there was a < or >, and nothing in the dom, then must be false
-	  // UNLESS it was limited by another range in the other direction.
-	  // Eg, >1.0.0 <1.0.1 is still a subset of <2.0.0
-	  if (gt && hasDomLT && !lt && gtltComp !== 0) {
-	    return false
-	  }
-
-	  if (lt && hasDomGT && !gt && gtltComp !== 0) {
-	    return false
-	  }
-
-	  // we needed a prerelease range in a specific tuple, but didn't get one
-	  // then this isn't a subset.  eg >=1.2.3-pre is not a subset of >=1.0.0,
-	  // because it includes prereleases in the 1.2.3 tuple
-	  if (needDomGTPre || needDomLTPre) {
-	    return false
-	  }
-
-	  return true
-	};
-
-	// >=1.2.3 is lower than >1.2.3
-	const higherGT = (a, b, options) => {
-	  if (!a) {
-	    return b
-	  }
-	  const comp = compare(a.semver, b.semver, options);
-	  return comp > 0 ? a
-	    : comp < 0 ? b
-	    : b.operator === '>' && a.operator === '>=' ? b
-	    : a
-	};
-
-	// <=1.2.3 is higher than <1.2.3
-	const lowerLT = (a, b, options) => {
-	  if (!a) {
-	    return b
-	  }
-	  const comp = compare(a.semver, b.semver, options);
-	  return comp < 0 ? a
-	    : comp > 0 ? b
-	    : b.operator === '<' && a.operator === '<=' ? b
-	    : a
-	};
-
-	subset_1 = subset;
-	return subset_1;
-}
-
-var semver$1;
-var hasRequiredSemver;
-
-function requireSemver () {
-	if (hasRequiredSemver) return semver$1;
-	hasRequiredSemver = 1;
-	// just pre-load all the stuff that index.js lazily exports
-	const internalRe = requireRe();
-	const constants = requireConstants();
-	const SemVer = requireSemver$1();
-	const identifiers = requireIdentifiers();
-	const parse = requireParse();
-	const valid = requireValid$1();
-	const clean = requireClean();
-	const inc = requireInc();
-	const diff = requireDiff();
-	const major = requireMajor();
-	const minor = requireMinor();
-	const patch = requirePatch();
-	const prerelease = requirePrerelease();
-	const compare = requireCompare();
-	const rcompare = requireRcompare();
-	const compareLoose = requireCompareLoose();
-	const compareBuild = requireCompareBuild();
-	const sort = requireSort();
-	const rsort = requireRsort();
-	const gt = requireGt();
-	const lt = requireLt();
-	const eq = requireEq();
-	const neq = requireNeq();
-	const gte = requireGte();
-	const lte = requireLte();
-	const cmp = requireCmp();
-	const coerce = requireCoerce();
-	const Comparator = requireComparator();
-	const Range = requireRange();
-	const satisfies = requireSatisfies();
-	const toComparators = requireToComparators();
-	const maxSatisfying = requireMaxSatisfying();
-	const minSatisfying = requireMinSatisfying();
-	const minVersion = requireMinVersion();
-	const validRange = requireValid();
-	const outside = requireOutside();
-	const gtr = requireGtr();
-	const ltr = requireLtr();
-	const intersects = requireIntersects();
-	const simplifyRange = requireSimplify();
-	const subset = requireSubset();
-	semver$1 = {
-	  parse,
-	  valid,
-	  clean,
-	  inc,
-	  diff,
-	  major,
-	  minor,
-	  patch,
-	  prerelease,
-	  compare,
-	  rcompare,
-	  compareLoose,
-	  compareBuild,
-	  sort,
-	  rsort,
-	  gt,
-	  lt,
-	  eq,
-	  neq,
-	  gte,
-	  lte,
-	  cmp,
-	  coerce,
-	  Comparator,
-	  Range,
-	  satisfies,
-	  toComparators,
-	  maxSatisfying,
-	  minSatisfying,
-	  minVersion,
-	  validRange,
-	  outside,
-	  gtr,
-	  ltr,
-	  intersects,
-	  simplifyRange,
-	  subset,
-	  SemVer,
-	  re: internalRe.re,
-	  src: internalRe.src,
-	  tokens: internalRe.t,
-	  SEMVER_SPEC_VERSION: constants.SEMVER_SPEC_VERSION,
-	  RELEASE_TYPES: constants.RELEASE_TYPES,
-	  compareIdentifiers: identifiers.compareIdentifiers,
-	  rcompareIdentifiers: identifiers.rcompareIdentifiers,
-	};
-	return semver$1;
-}
+const Range$9 = requireRange();
+const satisfies$4 = (version, range, options) => {
+  try {
+    range = new Range$9(range, options);
+  } catch (er) {
+    return false
+  }
+  return range.test(version)
+};
+var satisfies_1 = satisfies$4;
+
+const Range$8 = requireRange();
+
+// Mostly just for testing and legacy API reasons
+const toComparators$1 = (range, options) =>
+  new Range$8(range, options).set
+    .map(comp => comp.map(c => c.value).join(' ').trim().split(' '));
+
+var toComparators_1 = toComparators$1;
+
+const SemVer$4 = semver$2;
+const Range$7 = requireRange();
+
+const maxSatisfying$1 = (versions, range, options) => {
+  let max = null;
+  let maxSV = null;
+  let rangeObj = null;
+  try {
+    rangeObj = new Range$7(range, options);
+  } catch (er) {
+    return null
+  }
+  versions.forEach((v) => {
+    if (rangeObj.test(v)) {
+      // satisfies(v, range, options)
+      if (!max || maxSV.compare(v) === -1) {
+        // compare(max, v, true)
+        max = v;
+        maxSV = new SemVer$4(max, options);
+      }
+    }
+  });
+  return max
+};
+var maxSatisfying_1 = maxSatisfying$1;
+
+const SemVer$3 = semver$2;
+const Range$6 = requireRange();
+const minSatisfying$1 = (versions, range, options) => {
+  let min = null;
+  let minSV = null;
+  let rangeObj = null;
+  try {
+    rangeObj = new Range$6(range, options);
+  } catch (er) {
+    return null
+  }
+  versions.forEach((v) => {
+    if (rangeObj.test(v)) {
+      // satisfies(v, range, options)
+      if (!min || minSV.compare(v) === 1) {
+        // compare(min, v, true)
+        min = v;
+        minSV = new SemVer$3(min, options);
+      }
+    }
+  });
+  return min
+};
+var minSatisfying_1 = minSatisfying$1;
+
+const SemVer$2 = semver$2;
+const Range$5 = requireRange();
+const gt$2 = gt_1;
+
+const minVersion$1 = (range, loose) => {
+  range = new Range$5(range, loose);
+
+  let minver = new SemVer$2('0.0.0');
+  if (range.test(minver)) {
+    return minver
+  }
+
+  minver = new SemVer$2('0.0.0-0');
+  if (range.test(minver)) {
+    return minver
+  }
+
+  minver = null;
+  for (let i = 0; i < range.set.length; ++i) {
+    const comparators = range.set[i];
+
+    let setMin = null;
+    comparators.forEach((comparator) => {
+      // Clone to avoid manipulating the comparator's semver object.
+      const compver = new SemVer$2(comparator.semver.version);
+      switch (comparator.operator) {
+        case '>':
+          if (compver.prerelease.length === 0) {
+            compver.patch++;
+          } else {
+            compver.prerelease.push(0);
+          }
+          compver.raw = compver.format();
+          /* fallthrough */
+        case '':
+        case '>=':
+          if (!setMin || gt$2(compver, setMin)) {
+            setMin = compver;
+          }
+          break
+        case '<':
+        case '<=':
+          /* Ignore maximum versions */
+          break
+        /* istanbul ignore next */
+        default:
+          throw new Error(`Unexpected operation: ${comparator.operator}`)
+      }
+    });
+    if (setMin && (!minver || gt$2(minver, setMin))) {
+      minver = setMin;
+    }
+  }
+
+  if (minver && range.test(minver)) {
+    return minver
+  }
+
+  return null
+};
+var minVersion_1 = minVersion$1;
+
+const Range$4 = requireRange();
+const validRange$1 = (range, options) => {
+  try {
+    // Return '*' instead of '' so that truthiness works.
+    // This will throw if it's invalid anyway
+    return new Range$4(range, options).range || '*'
+  } catch (er) {
+    return null
+  }
+};
+var valid$1 = validRange$1;
+
+const SemVer$1 = semver$2;
+const Comparator$2 = requireComparator();
+const { ANY: ANY$1 } = Comparator$2;
+const Range$3 = requireRange();
+const satisfies$3 = satisfies_1;
+const gt$1 = gt_1;
+const lt$1 = lt_1;
+const lte$1 = lte_1;
+const gte$1 = gte_1;
+
+const outside$3 = (version, range, hilo, options) => {
+  version = new SemVer$1(version, options);
+  range = new Range$3(range, options);
+
+  let gtfn, ltefn, ltfn, comp, ecomp;
+  switch (hilo) {
+    case '>':
+      gtfn = gt$1;
+      ltefn = lte$1;
+      ltfn = lt$1;
+      comp = '>';
+      ecomp = '>=';
+      break
+    case '<':
+      gtfn = lt$1;
+      ltefn = gte$1;
+      ltfn = gt$1;
+      comp = '<';
+      ecomp = '<=';
+      break
+    default:
+      throw new TypeError('Must provide a hilo val of "<" or ">"')
+  }
+
+  // If it satisfies the range it is not outside
+  if (satisfies$3(version, range, options)) {
+    return false
+  }
+
+  // From now on, variable terms are as if we're in "gtr" mode.
+  // but note that everything is flipped for the "ltr" function.
+
+  for (let i = 0; i < range.set.length; ++i) {
+    const comparators = range.set[i];
+
+    let high = null;
+    let low = null;
+
+    comparators.forEach((comparator) => {
+      if (comparator.semver === ANY$1) {
+        comparator = new Comparator$2('>=0.0.0');
+      }
+      high = high || comparator;
+      low = low || comparator;
+      if (gtfn(comparator.semver, high.semver, options)) {
+        high = comparator;
+      } else if (ltfn(comparator.semver, low.semver, options)) {
+        low = comparator;
+      }
+    });
+
+    // If the edge version comparator has a operator then our version
+    // isn't outside it
+    if (high.operator === comp || high.operator === ecomp) {
+      return false
+    }
+
+    // If the lowest version comparator has an operator and our version
+    // is less than it then it isn't higher than the range
+    if ((!low.operator || low.operator === comp) &&
+        ltefn(version, low.semver)) {
+      return false
+    } else if (low.operator === ecomp && ltfn(version, low.semver)) {
+      return false
+    }
+  }
+  return true
+};
+
+var outside_1 = outside$3;
+
+// Determine if version is greater than all the versions possible in the range.
+const outside$2 = outside_1;
+const gtr$1 = (version, range, options) => outside$2(version, range, '>', options);
+var gtr_1 = gtr$1;
+
+const outside$1 = outside_1;
+// Determine if version is less than all the versions possible in the range
+const ltr$1 = (version, range, options) => outside$1(version, range, '<', options);
+var ltr_1 = ltr$1;
+
+const Range$2 = requireRange();
+const intersects$1 = (r1, r2, options) => {
+  r1 = new Range$2(r1, options);
+  r2 = new Range$2(r2, options);
+  return r1.intersects(r2, options)
+};
+var intersects_1 = intersects$1;
+
+// given a set of versions and a range, create a "simplified" range
+// that includes the same versions that the original range does
+// If the original range is shorter than the simplified one, return that.
+const satisfies$2 = satisfies_1;
+const compare$2 = compare_1;
+var simplify = (versions, range, options) => {
+  const set = [];
+  let first = null;
+  let prev = null;
+  const v = versions.sort((a, b) => compare$2(a, b, options));
+  for (const version of v) {
+    const included = satisfies$2(version, range, options);
+    if (included) {
+      prev = version;
+      if (!first) {
+        first = version;
+      }
+    } else {
+      if (prev) {
+        set.push([first, prev]);
+      }
+      prev = null;
+      first = null;
+    }
+  }
+  if (first) {
+    set.push([first, null]);
+  }
+
+  const ranges = [];
+  for (const [min, max] of set) {
+    if (min === max) {
+      ranges.push(min);
+    } else if (!max && min === v[0]) {
+      ranges.push('*');
+    } else if (!max) {
+      ranges.push(`>=${min}`);
+    } else if (min === v[0]) {
+      ranges.push(`<=${max}`);
+    } else {
+      ranges.push(`${min} - ${max}`);
+    }
+  }
+  const simplified = ranges.join(' || ');
+  const original = typeof range.raw === 'string' ? range.raw : String(range);
+  return simplified.length < original.length ? simplified : range
+};
+
+const Range$1 = requireRange();
+const Comparator$1 = requireComparator();
+const { ANY } = Comparator$1;
+const satisfies$1 = satisfies_1;
+const compare$1 = compare_1;
+
+// Complex range `r1 || r2 || ...` is a subset of `R1 || R2 || ...` iff:
+// - Every simple range `r1, r2, ...` is a null set, OR
+// - Every simple range `r1, r2, ...` which is not a null set is a subset of
+//   some `R1, R2, ...`
+//
+// Simple range `c1 c2 ...` is a subset of simple range `C1 C2 ...` iff:
+// - If c is only the ANY comparator
+//   - If C is only the ANY comparator, return true
+//   - Else if in prerelease mode, return false
+//   - else replace c with `[>=0.0.0]`
+// - If C is only the ANY comparator
+//   - if in prerelease mode, return true
+//   - else replace C with `[>=0.0.0]`
+// - Let EQ be the set of = comparators in c
+// - If EQ is more than one, return true (null set)
+// - Let GT be the highest > or >= comparator in c
+// - Let LT be the lowest < or <= comparator in c
+// - If GT and LT, and GT.semver > LT.semver, return true (null set)
+// - If any C is a = range, and GT or LT are set, return false
+// - If EQ
+//   - If GT, and EQ does not satisfy GT, return true (null set)
+//   - If LT, and EQ does not satisfy LT, return true (null set)
+//   - If EQ satisfies every C, return true
+//   - Else return false
+// - If GT
+//   - If GT.semver is lower than any > or >= comp in C, return false
+//   - If GT is >=, and GT.semver does not satisfy every C, return false
+//   - If GT.semver has a prerelease, and not in prerelease mode
+//     - If no C has a prerelease and the GT.semver tuple, return false
+// - If LT
+//   - If LT.semver is greater than any < or <= comp in C, return false
+//   - If LT is <=, and LT.semver does not satisfy every C, return false
+//   - If GT.semver has a prerelease, and not in prerelease mode
+//     - If no C has a prerelease and the LT.semver tuple, return false
+// - Else return true
+
+const subset$1 = (sub, dom, options = {}) => {
+  if (sub === dom) {
+    return true
+  }
+
+  sub = new Range$1(sub, options);
+  dom = new Range$1(dom, options);
+  let sawNonNull = false;
+
+  OUTER: for (const simpleSub of sub.set) {
+    for (const simpleDom of dom.set) {
+      const isSub = simpleSubset(simpleSub, simpleDom, options);
+      sawNonNull = sawNonNull || isSub !== null;
+      if (isSub) {
+        continue OUTER
+      }
+    }
+    // the null set is a subset of everything, but null simple ranges in
+    // a complex range should be ignored.  so if we saw a non-null range,
+    // then we know this isn't a subset, but if EVERY simple range was null,
+    // then it is a subset.
+    if (sawNonNull) {
+      return false
+    }
+  }
+  return true
+};
+
+const minimumVersionWithPreRelease = [new Comparator$1('>=0.0.0-0')];
+const minimumVersion = [new Comparator$1('>=0.0.0')];
+
+const simpleSubset = (sub, dom, options) => {
+  if (sub === dom) {
+    return true
+  }
+
+  if (sub.length === 1 && sub[0].semver === ANY) {
+    if (dom.length === 1 && dom[0].semver === ANY) {
+      return true
+    } else if (options.includePrerelease) {
+      sub = minimumVersionWithPreRelease;
+    } else {
+      sub = minimumVersion;
+    }
+  }
+
+  if (dom.length === 1 && dom[0].semver === ANY) {
+    if (options.includePrerelease) {
+      return true
+    } else {
+      dom = minimumVersion;
+    }
+  }
+
+  const eqSet = new Set();
+  let gt, lt;
+  for (const c of sub) {
+    if (c.operator === '>' || c.operator === '>=') {
+      gt = higherGT(gt, c, options);
+    } else if (c.operator === '<' || c.operator === '<=') {
+      lt = lowerLT(lt, c, options);
+    } else {
+      eqSet.add(c.semver);
+    }
+  }
+
+  if (eqSet.size > 1) {
+    return null
+  }
+
+  let gtltComp;
+  if (gt && lt) {
+    gtltComp = compare$1(gt.semver, lt.semver, options);
+    if (gtltComp > 0) {
+      return null
+    } else if (gtltComp === 0 && (gt.operator !== '>=' || lt.operator !== '<=')) {
+      return null
+    }
+  }
+
+  // will iterate one or zero times
+  for (const eq of eqSet) {
+    if (gt && !satisfies$1(eq, String(gt), options)) {
+      return null
+    }
+
+    if (lt && !satisfies$1(eq, String(lt), options)) {
+      return null
+    }
+
+    for (const c of dom) {
+      if (!satisfies$1(eq, String(c), options)) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  let higher, lower;
+  let hasDomLT, hasDomGT;
+  // if the subset has a prerelease, we need a comparator in the superset
+  // with the same tuple and a prerelease, or it's not a subset
+  let needDomLTPre = lt &&
+    !options.includePrerelease &&
+    lt.semver.prerelease.length ? lt.semver : false;
+  let needDomGTPre = gt &&
+    !options.includePrerelease &&
+    gt.semver.prerelease.length ? gt.semver : false;
+  // exception: <1.2.3-0 is the same as <1.2.3
+  if (needDomLTPre && needDomLTPre.prerelease.length === 1 &&
+      lt.operator === '<' && needDomLTPre.prerelease[0] === 0) {
+    needDomLTPre = false;
+  }
+
+  for (const c of dom) {
+    hasDomGT = hasDomGT || c.operator === '>' || c.operator === '>=';
+    hasDomLT = hasDomLT || c.operator === '<' || c.operator === '<=';
+    if (gt) {
+      if (needDomGTPre) {
+        if (c.semver.prerelease && c.semver.prerelease.length &&
+            c.semver.major === needDomGTPre.major &&
+            c.semver.minor === needDomGTPre.minor &&
+            c.semver.patch === needDomGTPre.patch) {
+          needDomGTPre = false;
+        }
+      }
+      if (c.operator === '>' || c.operator === '>=') {
+        higher = higherGT(gt, c, options);
+        if (higher === c && higher !== gt) {
+          return false
+        }
+      } else if (gt.operator === '>=' && !satisfies$1(gt.semver, String(c), options)) {
+        return false
+      }
+    }
+    if (lt) {
+      if (needDomLTPre) {
+        if (c.semver.prerelease && c.semver.prerelease.length &&
+            c.semver.major === needDomLTPre.major &&
+            c.semver.minor === needDomLTPre.minor &&
+            c.semver.patch === needDomLTPre.patch) {
+          needDomLTPre = false;
+        }
+      }
+      if (c.operator === '<' || c.operator === '<=') {
+        lower = lowerLT(lt, c, options);
+        if (lower === c && lower !== lt) {
+          return false
+        }
+      } else if (lt.operator === '<=' && !satisfies$1(lt.semver, String(c), options)) {
+        return false
+      }
+    }
+    if (!c.operator && (lt || gt) && gtltComp !== 0) {
+      return false
+    }
+  }
+
+  // if there was a < or >, and nothing in the dom, then must be false
+  // UNLESS it was limited by another range in the other direction.
+  // Eg, >1.0.0 <1.0.1 is still a subset of <2.0.0
+  if (gt && hasDomLT && !lt && gtltComp !== 0) {
+    return false
+  }
+
+  if (lt && hasDomGT && !gt && gtltComp !== 0) {
+    return false
+  }
+
+  // we needed a prerelease range in a specific tuple, but didn't get one
+  // then this isn't a subset.  eg >=1.2.3-pre is not a subset of >=1.0.0,
+  // because it includes prereleases in the 1.2.3 tuple
+  if (needDomGTPre || needDomLTPre) {
+    return false
+  }
+
+  return true
+};
+
+// >=1.2.3 is lower than >1.2.3
+const higherGT = (a, b, options) => {
+  if (!a) {
+    return b
+  }
+  const comp = compare$1(a.semver, b.semver, options);
+  return comp > 0 ? a
+    : comp < 0 ? b
+    : b.operator === '>' && a.operator === '>=' ? b
+    : a
+};
+
+// <=1.2.3 is higher than <1.2.3
+const lowerLT = (a, b, options) => {
+  if (!a) {
+    return b
+  }
+  const comp = compare$1(a.semver, b.semver, options);
+  return comp < 0 ? a
+    : comp > 0 ? b
+    : b.operator === '<' && a.operator === '<=' ? b
+    : a
+};
+
+var subset_1 = subset$1;
+
+// just pre-load all the stuff that index.js lazily exports
+const internalRe = reExports;
+const constants = constants$1;
+const SemVer = semver$2;
+const identifiers = identifiers$1;
+const parse = parse_1;
+const valid = valid_1;
+const clean = clean_1;
+const inc = inc_1;
+const diff = diff_1;
+const major = major_1;
+const minor = minor_1;
+const patch = patch_1;
+const prerelease = prerelease_1;
+const compare = compare_1;
+const rcompare = rcompare_1;
+const compareLoose = compareLoose_1;
+const compareBuild = compareBuild_1;
+const sort = sort_1;
+const rsort = rsort_1;
+const gt = gt_1;
+const lt = lt_1;
+const eq = eq_1;
+const neq = neq_1;
+const gte = gte_1;
+const lte = lte_1;
+const cmp = cmp_1;
+const coerce = coerce_1;
+const Comparator = requireComparator();
+const Range = requireRange();
+const satisfies = satisfies_1;
+const toComparators = toComparators_1;
+const maxSatisfying = maxSatisfying_1;
+const minSatisfying = minSatisfying_1;
+const minVersion = minVersion_1;
+const validRange = valid$1;
+const outside = outside_1;
+const gtr = gtr_1;
+const ltr = ltr_1;
+const intersects = intersects_1;
+const simplifyRange = simplify;
+const subset = subset_1;
+var semver$1 = {
+  parse,
+  valid,
+  clean,
+  inc,
+  diff,
+  major,
+  minor,
+  patch,
+  prerelease,
+  compare,
+  rcompare,
+  compareLoose,
+  compareBuild,
+  sort,
+  rsort,
+  gt,
+  lt,
+  eq,
+  neq,
+  gte,
+  lte,
+  cmp,
+  coerce,
+  Comparator,
+  Range,
+  satisfies,
+  toComparators,
+  maxSatisfying,
+  minSatisfying,
+  minVersion,
+  validRange,
+  outside,
+  gtr,
+  ltr,
+  intersects,
+  simplifyRange,
+  subset,
+  SemVer,
+  re: internalRe.re,
+  src: internalRe.src,
+  tokens: internalRe.t,
+  SEMVER_SPEC_VERSION: constants.SEMVER_SPEC_VERSION,
+  RELEASE_TYPES: constants.RELEASE_TYPES,
+  compareIdentifiers: identifiers.compareIdentifiers,
+  rcompareIdentifiers: identifiers.rcompareIdentifiers,
+};
 
 var DownloadedUpdateHelper$1 = {};
 
-var lodash_isequalExports = {};
-var lodash_isequal = {
-  get exports(){ return lodash_isequalExports; },
-  set exports(v){ lodash_isequalExports = v; },
-};
+var lodash_isequal = {exports: {}};
 
 /**
  * Lodash (Custom Build) <https://lodash.com/>
@@ -14034,6 +12999,7 @@ var lodash_isequal = {
  * Based on Underscore.js 1.8.3 <http://underscorejs.org/LICENSE>
  * Copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
  */
+lodash_isequal.exports;
 
 (function (module, exports) {
 	/** Used as the size to enable large array optimizations. */
@@ -14862,7 +13828,7 @@ var lodash_isequal = {
 	      length = result.length;
 
 	  for (var key in value) {
-	    if ((inherited || hasOwnProperty.call(value, key)) &&
+	    if ((hasOwnProperty.call(value, key)) &&
 	        !(skipIndexes && (
 	           // Safari 9 has enumerable `arguments.length` in strict mode.
 	           key == 'length' ||
@@ -15874,17 +14840,20 @@ var lodash_isequal = {
 	  return false;
 	}
 
-	module.exports = isEqual;
-} (lodash_isequal, lodash_isequalExports));
+	module.exports = isEqual; 
+} (lodash_isequal, lodash_isequal.exports));
+
+var lodash_isequalExports = lodash_isequal.exports;
 
 Object.defineProperty(DownloadedUpdateHelper$1, "__esModule", { value: true });
-DownloadedUpdateHelper$1.createTempUpdateFile = DownloadedUpdateHelper$1.DownloadedUpdateHelper = void 0;
-const crypto_1 = require$$0$3;
+DownloadedUpdateHelper$1.DownloadedUpdateHelper = void 0;
+DownloadedUpdateHelper$1.createTempUpdateFile = createTempUpdateFile;
+const crypto_1 = require$$0$2;
 const fs_1$2 = require$$1$2;
 // @ts-ignore
 const isEqual = lodash_isequalExports;
 const fs_extra_1$2 = lib;
-const path$3 = require$$1$4;
+const path$4 = require$$1$4;
 /** @private **/
 class DownloadedUpdateHelper {
     constructor(cacheDir) {
@@ -15905,7 +14874,7 @@ class DownloadedUpdateHelper {
         return this._packageFile;
     }
     get cacheDirForPendingUpdate() {
-        return path$3.join(this.cacheDir, "pending");
+        return path$4.join(this.cacheDir, "pending");
     }
     async validateDownloadedPath(updateFile, updateInfo, fileInfo, logger) {
         if (this.versionInfo != null && this.file === updateFile && this.fileInfo != null) {
@@ -15993,7 +14962,7 @@ class DownloadedUpdateHelper {
             await this.cleanCacheDirForPendingUpdate();
             return null;
         }
-        const updateFile = path$3.join(this.cacheDirForPendingUpdate, cachedInfo.fileName);
+        const updateFile = path$4.join(this.cacheDirForPendingUpdate, cachedInfo.fileName);
         if (!(await (0, fs_extra_1$2.pathExists)(updateFile))) {
             logger.info("Cached update file doesn't exist");
             return null;
@@ -16008,7 +14977,7 @@ class DownloadedUpdateHelper {
         return updateFile;
     }
     getUpdateInfoFile() {
-        return path$3.join(this.cacheDirForPendingUpdate, "update-info.json");
+        return path$4.join(this.cacheDirForPendingUpdate, "update-info.json");
     }
 }
 DownloadedUpdateHelper$1.DownloadedUpdateHelper = DownloadedUpdateHelper;
@@ -16028,7 +14997,7 @@ function hashFile(file, algorithm = "sha512", encoding = "base64", options) {
 async function createTempUpdateFile(name, cacheDir, log) {
     // https://github.com/electron-userland/electron-builder/pull/2474#issuecomment-366481912
     let nameCounter = 0;
-    let result = path$3.join(cacheDir, name);
+    let result = path$4.join(cacheDir, name);
     for (let i = 0; i < 3; i++) {
         try {
             await (0, fs_extra_1$2.unlink)(result);
@@ -16039,41 +15008,39 @@ async function createTempUpdateFile(name, cacheDir, log) {
                 return result;
             }
             log.warn(`Error on remove temp update file: ${e}`);
-            result = path$3.join(cacheDir, `${nameCounter++}-${name}`);
+            result = path$4.join(cacheDir, `${nameCounter++}-${name}`);
         }
     }
     return result;
 }
-DownloadedUpdateHelper$1.createTempUpdateFile = createTempUpdateFile;
 
 var ElectronAppAdapter$1 = {};
 
 var AppAdapter = {};
 
 Object.defineProperty(AppAdapter, "__esModule", { value: true });
-AppAdapter.getAppCacheDir = void 0;
-const path$2 = require$$1$4;
-const os_1 = require$$0$1;
+AppAdapter.getAppCacheDir = getAppCacheDir;
+const path$3 = require$$1$4;
+const os_1 = require$$2;
 function getAppCacheDir() {
     const homedir = (0, os_1.homedir)();
     // https://github.com/electron/electron/issues/1404#issuecomment-194391247
     let result;
     if (process.platform === "win32") {
-        result = process.env["LOCALAPPDATA"] || path$2.join(homedir, "AppData", "Local");
+        result = process.env["LOCALAPPDATA"] || path$3.join(homedir, "AppData", "Local");
     }
     else if (process.platform === "darwin") {
-        result = path$2.join(homedir, "Library", "Caches");
+        result = path$3.join(homedir, "Library", "Caches");
     }
     else {
-        result = process.env["XDG_CACHE_HOME"] || path$2.join(homedir, ".cache");
+        result = process.env["XDG_CACHE_HOME"] || path$3.join(homedir, ".cache");
     }
     return result;
 }
-AppAdapter.getAppCacheDir = getAppCacheDir;
 
 Object.defineProperty(ElectronAppAdapter$1, "__esModule", { value: true });
 ElectronAppAdapter$1.ElectronAppAdapter = void 0;
-const path$1 = require$$1$4;
+const path$2 = require$$1$4;
 const AppAdapter_1 = AppAdapter;
 class ElectronAppAdapter {
     constructor(app = require$$1$5.app) {
@@ -16092,7 +15059,7 @@ class ElectronAppAdapter {
         return this.app.isPackaged === true;
     }
     get appUpdateConfigPath() {
-        return this.isPackaged ? path$1.join(process.resourcesPath, "app-update.yml") : path$1.join(this.app.getAppPath(), "dev-app-update.yml");
+        return this.isPackaged ? path$2.join(process.resourcesPath, "app-update.yml") : path$2.join(this.app.getAppPath(), "dev-app-update.yml");
     }
     get userDataPath() {
         return this.app.getPath("userData");
@@ -16116,15 +15083,15 @@ var electronHttpExecutor = {};
 
 (function (exports) {
 	Object.defineProperty(exports, "__esModule", { value: true });
-	exports.ElectronHttpExecutor = exports.getNetSession = exports.NET_SESSION_NAME = void 0;
-	const builder_util_runtime_1 = requireOut();
+	exports.ElectronHttpExecutor = exports.NET_SESSION_NAME = void 0;
+	exports.getNetSession = getNetSession;
+	const builder_util_runtime_1 = out;
 	exports.NET_SESSION_NAME = "electron-updater";
 	function getNetSession() {
 	    return require$$1$5.session.fromPartition(exports.NET_SESSION_NAME, {
 	        cache: false,
 	    });
 	}
-	exports.getNetSession = getNetSession;
 	class ElectronHttpExecutor extends builder_util_runtime_1.HttpExecutor {
 	    constructor(proxyLoginCallback) {
 	        super();
@@ -16192,7 +15159,7 @@ var electronHttpExecutor = {};
 	    }
 	}
 	exports.ElectronHttpExecutor = ElectronHttpExecutor;
-
+	
 } (electronHttpExecutor));
 
 var GenericProvider$1 = {};
@@ -16367,7 +15334,10 @@ function escapeRegExp$1(string) {
 var lodash_escaperegexp = escapeRegExp$1;
 
 Object.defineProperty(util, "__esModule", { value: true });
-util.blockmapFiles = util.getChannelFilename = util.newUrlFromBase = util.newBaseUrl = void 0;
+util.newBaseUrl = newBaseUrl;
+util.newUrlFromBase = newUrlFromBase;
+util.getChannelFilename = getChannelFilename;
+util.blockmapFiles = blockmapFiles;
 // if baseUrl path doesn't ends with /, this path will be not prepended to passed pathname for new URL(input, base)
 const url_1$3 = require$$4;
 // @ts-ignore
@@ -16380,7 +15350,6 @@ function newBaseUrl(url) {
     }
     return result;
 }
-util.newBaseUrl = newBaseUrl;
 // addRandomQueryToAvoidCaching is false by default because in most cases URL already contains version number,
 // so, it makes sense only for Generic Provider for channel files
 function newUrlFromBase(pathname, baseUrl, addRandomQueryToAvoidCaching = false) {
@@ -16395,23 +15364,24 @@ function newUrlFromBase(pathname, baseUrl, addRandomQueryToAvoidCaching = false)
     }
     return result;
 }
-util.newUrlFromBase = newUrlFromBase;
 function getChannelFilename(channel) {
     return `${channel}.yml`;
 }
-util.getChannelFilename = getChannelFilename;
 function blockmapFiles(baseUrl, oldVersion, newVersion) {
     const newBlockMapUrl = newUrlFromBase(`${baseUrl.pathname}.blockmap`, baseUrl);
     const oldBlockMapUrl = newUrlFromBase(`${baseUrl.pathname.replace(new RegExp(escapeRegExp(newVersion), "g"), oldVersion)}.blockmap`, baseUrl);
     return [oldBlockMapUrl, newBlockMapUrl];
 }
-util.blockmapFiles = blockmapFiles;
 
 var Provider$1 = {};
 
 Object.defineProperty(Provider$1, "__esModule", { value: true });
-Provider$1.resolveFiles = Provider$1.getFileList = Provider$1.parseUpdateInfo = Provider$1.findFile = Provider$1.Provider = void 0;
-const builder_util_runtime_1$a = requireOut();
+Provider$1.Provider = void 0;
+Provider$1.findFile = findFile;
+Provider$1.parseUpdateInfo = parseUpdateInfo;
+Provider$1.getFileList = getFileList;
+Provider$1.resolveFiles = resolveFiles;
+const builder_util_runtime_1$a = out;
 const js_yaml_1$1 = jsYaml;
 const util_1$5 = util;
 class Provider {
@@ -16482,7 +15452,6 @@ function findFile(files, extension, not) {
         return files.find(fileInfo => !not.some(ext => fileInfo.url.pathname.toLowerCase().endsWith(`.${ext}`)));
     }
 }
-Provider$1.findFile = findFile;
 function parseUpdateInfo(rawData, channelFile, channelFileUrl) {
     if (rawData == null) {
         throw (0, builder_util_runtime_1$a.newError)(`Cannot parse update info from ${channelFile} in the latest release artifacts (${channelFileUrl}): rawData: null`, "ERR_UPDATER_INVALID_UPDATE_INFO");
@@ -16496,7 +15465,6 @@ function parseUpdateInfo(rawData, channelFile, channelFileUrl) {
     }
     return result;
 }
-Provider$1.parseUpdateInfo = parseUpdateInfo;
 function getFileList(updateInfo) {
     const files = updateInfo.files;
     if (files != null && files.length > 0) {
@@ -16517,7 +15485,6 @@ function getFileList(updateInfo) {
         throw (0, builder_util_runtime_1$a.newError)(`No files provided: ${(0, builder_util_runtime_1$a.safeStringifyJson)(updateInfo)}`, "ERR_UPDATER_NO_FILES_PROVIDED");
     }
 }
-Provider$1.getFileList = getFileList;
 function resolveFiles(updateInfo, baseUrl, pathTransformer = (p) => p) {
     const files = getFileList(updateInfo);
     const result = files.map(fileInfo => {
@@ -16539,11 +15506,10 @@ function resolveFiles(updateInfo, baseUrl, pathTransformer = (p) => p) {
     }
     return result;
 }
-Provider$1.resolveFiles = resolveFiles;
 
 Object.defineProperty(GenericProvider$1, "__esModule", { value: true });
 GenericProvider$1.GenericProvider = void 0;
-const builder_util_runtime_1$9 = requireOut();
+const builder_util_runtime_1$9 = out;
 const util_1$4 = util;
 const Provider_1$4 = Provider$1;
 class GenericProvider extends Provider_1$4.Provider {
@@ -16597,7 +15563,7 @@ var BitbucketProvider$1 = {};
 
 Object.defineProperty(BitbucketProvider$1, "__esModule", { value: true });
 BitbucketProvider$1.BitbucketProvider = void 0;
-const builder_util_runtime_1$8 = requireOut();
+const builder_util_runtime_1$8 = out;
 const util_1$3 = util;
 const Provider_1$3 = Provider$1;
 class BitbucketProvider extends Provider_1$3.Provider {
@@ -16639,9 +15605,10 @@ BitbucketProvider$1.BitbucketProvider = BitbucketProvider;
 var GitHubProvider$1 = {};
 
 Object.defineProperty(GitHubProvider$1, "__esModule", { value: true });
-GitHubProvider$1.computeReleaseNotes = GitHubProvider$1.GitHubProvider = GitHubProvider$1.BaseGitHubProvider = void 0;
-const builder_util_runtime_1$7 = requireOut();
-const semver = requireSemver();
+GitHubProvider$1.GitHubProvider = GitHubProvider$1.BaseGitHubProvider = void 0;
+GitHubProvider$1.computeReleaseNotes = computeReleaseNotes;
+const builder_util_runtime_1$7 = out;
+const semver = semver$1;
 const url_1$2 = require$$4;
 const util_1$2 = util;
 const Provider_1$2 = Provider$1;
@@ -16671,8 +15638,12 @@ class GitHubProvider extends BaseGitHubProvider {
         this.options = options;
         this.updater = updater;
     }
+    get channel() {
+        const result = this.updater.channel || this.options.channel;
+        return result == null ? this.getDefaultChannelName() : this.getCustomChannelName(result);
+    }
     async getLatestVersion() {
-        var _a, _b, _c, _d;
+        var _a, _b, _c, _d, _e;
         const cancellationToken = new builder_util_runtime_1$7.CancellationToken();
         const feedXml = (await this.httpRequest((0, util_1$2.newUrlFromBase)(`${this.basePath}.atom`, this.baseUrl), {
             accept: "application/xml, application/atom+xml, text/xml, */*",
@@ -16750,7 +15721,10 @@ class GitHubProvider extends BaseGitHubProvider {
             }
         };
         try {
-            const channel = this.updater.allowPrerelease ? this.getCustomChannelName(String(((_d = semver.prerelease(tag)) === null || _d === void 0 ? void 0 : _d[0]) || "latest")) : this.getDefaultChannelName();
+            let channel = this.channel;
+            if (this.updater.allowPrerelease && ((_d = semver.prerelease(tag)) === null || _d === void 0 ? void 0 : _d[0])) {
+                channel = this.getCustomChannelName(String((_e = semver.prerelease(tag)) === null || _e === void 0 ? void 0 : _e[0]));
+            }
             rawData = await fetchData(channel);
         }
         catch (e) {
@@ -16826,13 +15800,12 @@ function computeReleaseNotes(currentVersion, isFullChangelog, feed, latestReleas
     }
     return releaseNotes.sort((a, b) => semver.rcompare(a.version, b.version));
 }
-GitHubProvider$1.computeReleaseNotes = computeReleaseNotes;
 
 var KeygenProvider$1 = {};
 
 Object.defineProperty(KeygenProvider$1, "__esModule", { value: true });
 KeygenProvider$1.KeygenProvider = void 0;
-const builder_util_runtime_1$6 = requireOut();
+const builder_util_runtime_1$6 = out;
 const util_1$1 = util;
 const Provider_1$1 = Provider$1;
 class KeygenProvider extends Provider_1$1.Provider {
@@ -16877,9 +15850,9 @@ var PrivateGitHubProvider$1 = {};
 
 Object.defineProperty(PrivateGitHubProvider$1, "__esModule", { value: true });
 PrivateGitHubProvider$1.PrivateGitHubProvider = void 0;
-const builder_util_runtime_1$5 = requireOut();
+const builder_util_runtime_1$5 = out;
 const js_yaml_1 = jsYaml;
-const path = require$$1$4;
+const path$1 = require$$1$4;
 const url_1$1 = require$$4;
 const util_1 = util;
 const GitHubProvider_1$1 = GitHubProvider$1;
@@ -16953,7 +15926,7 @@ class PrivateGitHubProvider extends GitHubProvider_1$1.BaseGitHubProvider {
     }
     resolveFiles(updateInfo) {
         return (0, Provider_1.getFileList)(updateInfo).map(it => {
-            const name = path.posix.basename(it.url).replace(/ /g, "-");
+            const name = path$1.posix.basename(it.url).replace(/ /g, "-");
             const asset = updateInfo.assets.find(it => it != null && it.name === name);
             if (asset == null) {
                 throw (0, builder_util_runtime_1$5.newError)(`Cannot find asset "${name}" in: ${JSON.stringify(updateInfo.assets, null, 2)}`, "ERR_UPDATER_ASSET_NOT_FOUND");
@@ -16968,8 +15941,9 @@ class PrivateGitHubProvider extends GitHubProvider_1$1.BaseGitHubProvider {
 PrivateGitHubProvider$1.PrivateGitHubProvider = PrivateGitHubProvider;
 
 Object.defineProperty(providerFactory, "__esModule", { value: true });
-providerFactory.createClient = providerFactory.isUrlProbablySupportMultiRangeRequests = void 0;
-const builder_util_runtime_1$4 = requireOut();
+providerFactory.isUrlProbablySupportMultiRangeRequests = isUrlProbablySupportMultiRangeRequests;
+providerFactory.createClient = createClient;
+const builder_util_runtime_1$4 = out;
 const BitbucketProvider_1 = BitbucketProvider$1;
 const GenericProvider_1 = GenericProvider$1;
 const GitHubProvider_1 = GitHubProvider$1;
@@ -16978,7 +15952,6 @@ const PrivateGitHubProvider_1 = PrivateGitHubProvider$1;
 function isUrlProbablySupportMultiRangeRequests(url) {
     return !url.includes("s3.amazonaws.com");
 }
-providerFactory.isUrlProbablySupportMultiRangeRequests = isUrlProbablySupportMultiRangeRequests;
 function createClient(data, updater, runtimeOptions) {
     // noinspection SuspiciousTypeOfGuard
     if (typeof data === "string") {
@@ -17030,743 +16003,8 @@ function createClient(data, updater, runtimeOptions) {
             throw (0, builder_util_runtime_1$4.newError)(`Unsupported provider: ${provider}`, "ERR_UPDATER_UNSUPPORTED_PROVIDER");
     }
 }
-providerFactory.createClient = createClient;
 
-var hasRequiredAppUpdater;
-
-function requireAppUpdater () {
-	if (hasRequiredAppUpdater) return AppUpdater;
-	hasRequiredAppUpdater = 1;
-	Object.defineProperty(AppUpdater, "__esModule", { value: true });
-	AppUpdater.NoOpLogger = AppUpdater.AppUpdater = void 0;
-	const builder_util_runtime_1 = requireOut();
-	const crypto_1 = require$$0$3;
-	const events_1 = require$$0;
-	const fs_extra_1 = lib;
-	const js_yaml_1 = jsYaml;
-	const lazy_val_1 = requireMain$1();
-	const path = require$$1$4;
-	const semver_1 = requireSemver();
-	const DownloadedUpdateHelper_1 = DownloadedUpdateHelper$1;
-	const ElectronAppAdapter_1 = ElectronAppAdapter$1;
-	const electronHttpExecutor_1 = electronHttpExecutor;
-	const GenericProvider_1 = GenericProvider$1;
-	const main_1 = requireMain();
-	const providerFactory_1 = providerFactory;
-	let AppUpdater$1 = class AppUpdater extends events_1.EventEmitter {
-	    /**
-	     * Get the update channel. Not applicable for GitHub. Doesn't return `channel` from the update configuration, only if was previously set.
-	     */
-	    get channel() {
-	        return this._channel;
-	    }
-	    /**
-	     * Set the update channel. Not applicable for GitHub. Overrides `channel` in the update configuration.
-	     *
-	     * `allowDowngrade` will be automatically set to `true`. If this behavior is not suitable for you, simple set `allowDowngrade` explicitly after.
-	     */
-	    set channel(value) {
-	        if (this._channel != null) {
-	            // noinspection SuspiciousTypeOfGuard
-	            if (typeof value !== "string") {
-	                throw (0, builder_util_runtime_1.newError)(`Channel must be a string, but got: ${value}`, "ERR_UPDATER_INVALID_CHANNEL");
-	            }
-	            else if (value.length === 0) {
-	                throw (0, builder_util_runtime_1.newError)(`Channel must be not an empty string`, "ERR_UPDATER_INVALID_CHANNEL");
-	            }
-	        }
-	        this._channel = value;
-	        this.allowDowngrade = true;
-	    }
-	    /**
-	     *  Shortcut for explicitly adding auth tokens to request headers
-	     */
-	    addAuthHeader(token) {
-	        this.requestHeaders = Object.assign({}, this.requestHeaders, {
-	            authorization: token,
-	        });
-	    }
-	    // noinspection JSMethodCanBeStatic,JSUnusedGlobalSymbols
-	    get netSession() {
-	        return (0, electronHttpExecutor_1.getNetSession)();
-	    }
-	    /**
-	     * The logger. You can pass [electron-log](https://github.com/megahertz/electron-log), [winston](https://github.com/winstonjs/winston) or another logger with the following interface: `{ info(), warn(), error() }`.
-	     * Set it to `null` if you would like to disable a logging feature.
-	     */
-	    get logger() {
-	        return this._logger;
-	    }
-	    set logger(value) {
-	        this._logger = value == null ? new NoOpLogger() : value;
-	    }
-	    // noinspection JSUnusedGlobalSymbols
-	    /**
-	     * test only
-	     * @private
-	     */
-	    set updateConfigPath(value) {
-	        this.clientPromise = null;
-	        this._appUpdateConfigPath = value;
-	        this.configOnDisk = new lazy_val_1.Lazy(() => this.loadUpdateConfig());
-	    }
-	    constructor(options, app) {
-	        super();
-	        /**
-	         * Whether to automatically download an update when it is found.
-	         */
-	        this.autoDownload = true;
-	        /**
-	         * Whether to automatically install a downloaded update on app quit (if `quitAndInstall` was not called before).
-	         */
-	        this.autoInstallOnAppQuit = true;
-	        /**
-	         * *windows-only* Whether to run the app after finish install when run the installer NOT in silent mode.
-	         * @default true
-	         */
-	        this.autoRunAppAfterInstall = true;
-	        /**
-	         * *GitHub provider only.* Whether to allow update to pre-release versions. Defaults to `true` if application version contains prerelease components (e.g. `0.12.1-alpha.1`, here `alpha` is a prerelease component), otherwise `false`.
-	         *
-	         * If `true`, downgrade will be allowed (`allowDowngrade` will be set to `true`).
-	         */
-	        this.allowPrerelease = false;
-	        /**
-	         * *GitHub provider only.* Get all release notes (from current version to latest), not just the latest.
-	         * @default false
-	         */
-	        this.fullChangelog = false;
-	        /**
-	         * Whether to allow version downgrade (when a user from the beta channel wants to go back to the stable channel).
-	         *
-	         * Taken in account only if channel differs (pre-release version component in terms of semantic versioning).
-	         *
-	         * @default false
-	         */
-	        this.allowDowngrade = false;
-	        /**
-	         * Web installer files might not have signature verification, this switch prevents to load them unless it is needed.
-	         *
-	         * Currently false to prevent breaking the current API, but it should be changed to default true at some point that
-	         * breaking changes are allowed.
-	         *
-	         * @default false
-	         */
-	        this.disableWebInstaller = false;
-	        /**
-	         * Allows developer to force the updater to work in "dev" mode, looking for "dev-app-update.yml" instead of "app-update.yml"
-	         * Dev: `path.join(this.app.getAppPath(), "dev-app-update.yml")`
-	         * Prod: `path.join(process.resourcesPath!, "app-update.yml")`
-	         *
-	         * @default false
-	         */
-	        this.forceDevUpdateConfig = false;
-	        this._channel = null;
-	        this.downloadedUpdateHelper = null;
-	        /**
-	         *  The request headers.
-	         */
-	        this.requestHeaders = null;
-	        this._logger = console;
-	        // noinspection JSUnusedGlobalSymbols
-	        /**
-	         * For type safety you can use signals, e.g. `autoUpdater.signals.updateDownloaded(() => {})` instead of `autoUpdater.on('update-available', () => {})`
-	         */
-	        this.signals = new main_1.UpdaterSignal(this);
-	        this._appUpdateConfigPath = null;
-	        this.clientPromise = null;
-	        this.stagingUserIdPromise = new lazy_val_1.Lazy(() => this.getOrCreateStagingUserId());
-	        // public, allow to read old config for anyone
-	        /** @internal */
-	        this.configOnDisk = new lazy_val_1.Lazy(() => this.loadUpdateConfig());
-	        this.checkForUpdatesPromise = null;
-	        this.updateInfoAndProvider = null;
-	        /**
-	         * @private
-	         * @internal
-	         */
-	        this._testOnlyOptions = null;
-	        this.on("error", (error) => {
-	            this._logger.error(`Error: ${error.stack || error.message}`);
-	        });
-	        if (app == null) {
-	            this.app = new ElectronAppAdapter_1.ElectronAppAdapter();
-	            this.httpExecutor = new electronHttpExecutor_1.ElectronHttpExecutor((authInfo, callback) => this.emit("login", authInfo, callback));
-	        }
-	        else {
-	            this.app = app;
-	            this.httpExecutor = null;
-	        }
-	        const currentVersionString = this.app.version;
-	        const currentVersion = (0, semver_1.parse)(currentVersionString);
-	        if (currentVersion == null) {
-	            throw (0, builder_util_runtime_1.newError)(`App version is not a valid semver version: "${currentVersionString}"`, "ERR_UPDATER_INVALID_VERSION");
-	        }
-	        this.currentVersion = currentVersion;
-	        this.allowPrerelease = hasPrereleaseComponents(currentVersion);
-	        if (options != null) {
-	            this.setFeedURL(options);
-	            if (typeof options !== "string" && options.requestHeaders) {
-	                this.requestHeaders = options.requestHeaders;
-	            }
-	        }
-	    }
-	    //noinspection JSMethodCanBeStatic,JSUnusedGlobalSymbols
-	    getFeedURL() {
-	        return "Deprecated. Do not use it.";
-	    }
-	    /**
-	     * Configure update provider. If value is `string`, [GenericServerOptions](/configuration/publish#genericserveroptions) will be set with value as `url`.
-	     * @param options If you want to override configuration in the `app-update.yml`.
-	     */
-	    setFeedURL(options) {
-	        const runtimeOptions = this.createProviderRuntimeOptions();
-	        // https://github.com/electron-userland/electron-builder/issues/1105
-	        let provider;
-	        if (typeof options === "string") {
-	            provider = new GenericProvider_1.GenericProvider({ provider: "generic", url: options }, this, {
-	                ...runtimeOptions,
-	                isUseMultipleRangeRequest: (0, providerFactory_1.isUrlProbablySupportMultiRangeRequests)(options),
-	            });
-	        }
-	        else {
-	            provider = (0, providerFactory_1.createClient)(options, this, runtimeOptions);
-	        }
-	        this.clientPromise = Promise.resolve(provider);
-	    }
-	    /**
-	     * Asks the server whether there is an update.
-	     */
-	    checkForUpdates() {
-	        if (!this.isUpdaterActive()) {
-	            return Promise.resolve(null);
-	        }
-	        let checkForUpdatesPromise = this.checkForUpdatesPromise;
-	        if (checkForUpdatesPromise != null) {
-	            this._logger.info("Checking for update (already in progress)");
-	            return checkForUpdatesPromise;
-	        }
-	        const nullizePromise = () => (this.checkForUpdatesPromise = null);
-	        this._logger.info("Checking for update");
-	        checkForUpdatesPromise = this.doCheckForUpdates()
-	            .then(it => {
-	            nullizePromise();
-	            return it;
-	        })
-	            .catch((e) => {
-	            nullizePromise();
-	            this.emit("error", e, `Cannot check for updates: ${(e.stack || e).toString()}`);
-	            throw e;
-	        });
-	        this.checkForUpdatesPromise = checkForUpdatesPromise;
-	        return checkForUpdatesPromise;
-	    }
-	    isUpdaterActive() {
-	        const isEnabled = this.app.isPackaged || this.forceDevUpdateConfig;
-	        if (!isEnabled) {
-	            this._logger.info("Skip checkForUpdates because application is not packed and dev update config is not forced");
-	            return false;
-	        }
-	        return true;
-	    }
-	    // noinspection JSUnusedGlobalSymbols
-	    checkForUpdatesAndNotify(downloadNotification) {
-	        return this.checkForUpdates().then(it => {
-	            if (!(it === null || it === void 0 ? void 0 : it.downloadPromise)) {
-	                if (this._logger.debug != null) {
-	                    this._logger.debug("checkForUpdatesAndNotify called, downloadPromise is null");
-	                }
-	                return it;
-	            }
-	            void it.downloadPromise.then(() => {
-	                const notificationContent = AppUpdater.formatDownloadNotification(it.updateInfo.version, this.app.name, downloadNotification);
-	                new (require$$1$5.Notification)(notificationContent).show();
-	            });
-	            return it;
-	        });
-	    }
-	    static formatDownloadNotification(version, appName, downloadNotification) {
-	        if (downloadNotification == null) {
-	            downloadNotification = {
-	                title: "A new update is ready to install",
-	                body: `{appName} version {version} has been downloaded and will be automatically installed on exit`,
-	            };
-	        }
-	        downloadNotification = {
-	            title: downloadNotification.title.replace("{appName}", appName).replace("{version}", version),
-	            body: downloadNotification.body.replace("{appName}", appName).replace("{version}", version),
-	        };
-	        return downloadNotification;
-	    }
-	    async isStagingMatch(updateInfo) {
-	        const rawStagingPercentage = updateInfo.stagingPercentage;
-	        let stagingPercentage = rawStagingPercentage;
-	        if (stagingPercentage == null) {
-	            return true;
-	        }
-	        stagingPercentage = parseInt(stagingPercentage, 10);
-	        if (isNaN(stagingPercentage)) {
-	            this._logger.warn(`Staging percentage is NaN: ${rawStagingPercentage}`);
-	            return true;
-	        }
-	        // convert from user 0-100 to internal 0-1
-	        stagingPercentage = stagingPercentage / 100;
-	        const stagingUserId = await this.stagingUserIdPromise.value;
-	        const val = builder_util_runtime_1.UUID.parse(stagingUserId).readUInt32BE(12);
-	        const percentage = val / 0xffffffff;
-	        this._logger.info(`Staging percentage: ${stagingPercentage}, percentage: ${percentage}, user id: ${stagingUserId}`);
-	        return percentage < stagingPercentage;
-	    }
-	    computeFinalHeaders(headers) {
-	        if (this.requestHeaders != null) {
-	            Object.assign(headers, this.requestHeaders);
-	        }
-	        return headers;
-	    }
-	    async isUpdateAvailable(updateInfo) {
-	        const latestVersion = (0, semver_1.parse)(updateInfo.version);
-	        if (latestVersion == null) {
-	            throw (0, builder_util_runtime_1.newError)(`This file could not be downloaded, or the latest version (from update server) does not have a valid semver version: "${updateInfo.version}"`, "ERR_UPDATER_INVALID_VERSION");
-	        }
-	        const currentVersion = this.currentVersion;
-	        if ((0, semver_1.eq)(latestVersion, currentVersion)) {
-	            return false;
-	        }
-	        const isStagingMatch = await this.isStagingMatch(updateInfo);
-	        if (!isStagingMatch) {
-	            return false;
-	        }
-	        // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405033227
-	        // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405030797
-	        const isLatestVersionNewer = (0, semver_1.gt)(latestVersion, currentVersion);
-	        const isLatestVersionOlder = (0, semver_1.lt)(latestVersion, currentVersion);
-	        if (isLatestVersionNewer) {
-	            return true;
-	        }
-	        return this.allowDowngrade && isLatestVersionOlder;
-	    }
-	    async getUpdateInfoAndProvider() {
-	        await this.app.whenReady();
-	        if (this.clientPromise == null) {
-	            this.clientPromise = this.configOnDisk.value.then(it => (0, providerFactory_1.createClient)(it, this, this.createProviderRuntimeOptions()));
-	        }
-	        const client = await this.clientPromise;
-	        const stagingUserId = await this.stagingUserIdPromise.value;
-	        client.setRequestHeaders(this.computeFinalHeaders({ "x-user-staging-id": stagingUserId }));
-	        return {
-	            info: await client.getLatestVersion(),
-	            provider: client,
-	        };
-	    }
-	    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-	    createProviderRuntimeOptions() {
-	        return {
-	            isUseMultipleRangeRequest: true,
-	            platform: this._testOnlyOptions == null ? process.platform : this._testOnlyOptions.platform,
-	            executor: this.httpExecutor,
-	        };
-	    }
-	    async doCheckForUpdates() {
-	        this.emit("checking-for-update");
-	        const result = await this.getUpdateInfoAndProvider();
-	        const updateInfo = result.info;
-	        if (!(await this.isUpdateAvailable(updateInfo))) {
-	            this._logger.info(`Update for version ${this.currentVersion} is not available (latest version: ${updateInfo.version}, downgrade is ${this.allowDowngrade ? "allowed" : "disallowed"}).`);
-	            this.emit("update-not-available", updateInfo);
-	            return {
-	                versionInfo: updateInfo,
-	                updateInfo,
-	            };
-	        }
-	        this.updateInfoAndProvider = result;
-	        this.onUpdateAvailable(updateInfo);
-	        const cancellationToken = new builder_util_runtime_1.CancellationToken();
-	        //noinspection ES6MissingAwait
-	        return {
-	            versionInfo: updateInfo,
-	            updateInfo,
-	            cancellationToken,
-	            downloadPromise: this.autoDownload ? this.downloadUpdate(cancellationToken) : null,
-	        };
-	    }
-	    onUpdateAvailable(updateInfo) {
-	        this._logger.info(`Found version ${updateInfo.version} (url: ${(0, builder_util_runtime_1.asArray)(updateInfo.files)
-	            .map(it => it.url)
-	            .join(", ")})`);
-	        this.emit("update-available", updateInfo);
-	    }
-	    /**
-	     * Start downloading update manually. You can use this method if `autoDownload` option is set to `false`.
-	     * @returns {Promise<Array<string>>} Paths to downloaded files.
-	     */
-	    downloadUpdate(cancellationToken = new builder_util_runtime_1.CancellationToken()) {
-	        const updateInfoAndProvider = this.updateInfoAndProvider;
-	        if (updateInfoAndProvider == null) {
-	            const error = new Error("Please check update first");
-	            this.dispatchError(error);
-	            return Promise.reject(error);
-	        }
-	        this._logger.info(`Downloading update from ${(0, builder_util_runtime_1.asArray)(updateInfoAndProvider.info.files)
-	            .map(it => it.url)
-	            .join(", ")}`);
-	        const errorHandler = (e) => {
-	            // https://github.com/electron-userland/electron-builder/issues/1150#issuecomment-436891159
-	            if (!(e instanceof builder_util_runtime_1.CancellationError)) {
-	                try {
-	                    this.dispatchError(e);
-	                }
-	                catch (nestedError) {
-	                    this._logger.warn(`Cannot dispatch error event: ${nestedError.stack || nestedError}`);
-	                }
-	            }
-	            return e;
-	        };
-	        try {
-	            return this.doDownloadUpdate({
-	                updateInfoAndProvider,
-	                requestHeaders: this.computeRequestHeaders(updateInfoAndProvider.provider),
-	                cancellationToken,
-	                disableWebInstaller: this.disableWebInstaller,
-	            }).catch((e) => {
-	                throw errorHandler(e);
-	            });
-	        }
-	        catch (e) {
-	            return Promise.reject(errorHandler(e));
-	        }
-	    }
-	    dispatchError(e) {
-	        this.emit("error", e, (e.stack || e).toString());
-	    }
-	    dispatchUpdateDownloaded(event) {
-	        this.emit(main_1.UPDATE_DOWNLOADED, event);
-	    }
-	    async loadUpdateConfig() {
-	        if (this._appUpdateConfigPath == null) {
-	            this._appUpdateConfigPath = this.app.appUpdateConfigPath;
-	        }
-	        return (0, js_yaml_1.load)(await (0, fs_extra_1.readFile)(this._appUpdateConfigPath, "utf-8"));
-	    }
-	    computeRequestHeaders(provider) {
-	        const fileExtraDownloadHeaders = provider.fileExtraDownloadHeaders;
-	        if (fileExtraDownloadHeaders != null) {
-	            const requestHeaders = this.requestHeaders;
-	            return requestHeaders == null
-	                ? fileExtraDownloadHeaders
-	                : {
-	                    ...fileExtraDownloadHeaders,
-	                    ...requestHeaders,
-	                };
-	        }
-	        return this.computeFinalHeaders({ accept: "*/*" });
-	    }
-	    async getOrCreateStagingUserId() {
-	        const file = path.join(this.app.userDataPath, ".updaterId");
-	        try {
-	            const id = await (0, fs_extra_1.readFile)(file, "utf-8");
-	            if (builder_util_runtime_1.UUID.check(id)) {
-	                return id;
-	            }
-	            else {
-	                this._logger.warn(`Staging user id file exists, but content was invalid: ${id}`);
-	            }
-	        }
-	        catch (e) {
-	            if (e.code !== "ENOENT") {
-	                this._logger.warn(`Couldn't read staging user ID, creating a blank one: ${e}`);
-	            }
-	        }
-	        const id = builder_util_runtime_1.UUID.v5((0, crypto_1.randomBytes)(4096), builder_util_runtime_1.UUID.OID);
-	        this._logger.info(`Generated new staging user ID: ${id}`);
-	        try {
-	            await (0, fs_extra_1.outputFile)(file, id);
-	        }
-	        catch (e) {
-	            this._logger.warn(`Couldn't write out staging user ID: ${e}`);
-	        }
-	        return id;
-	    }
-	    /** @internal */
-	    get isAddNoCacheQuery() {
-	        const headers = this.requestHeaders;
-	        // https://github.com/electron-userland/electron-builder/issues/3021
-	        if (headers == null) {
-	            return true;
-	        }
-	        for (const headerName of Object.keys(headers)) {
-	            const s = headerName.toLowerCase();
-	            if (s === "authorization" || s === "private-token") {
-	                return false;
-	            }
-	        }
-	        return true;
-	    }
-	    async getOrCreateDownloadHelper() {
-	        let result = this.downloadedUpdateHelper;
-	        if (result == null) {
-	            const dirName = (await this.configOnDisk.value).updaterCacheDirName;
-	            const logger = this._logger;
-	            if (dirName == null) {
-	                logger.error("updaterCacheDirName is not specified in app-update.yml Was app build using at least electron-builder 20.34.0?");
-	            }
-	            const cacheDir = path.join(this.app.baseCachePath, dirName || this.app.name);
-	            if (logger.debug != null) {
-	                logger.debug(`updater cache dir: ${cacheDir}`);
-	            }
-	            result = new DownloadedUpdateHelper_1.DownloadedUpdateHelper(cacheDir);
-	            this.downloadedUpdateHelper = result;
-	        }
-	        return result;
-	    }
-	    async executeDownload(taskOptions) {
-	        const fileInfo = taskOptions.fileInfo;
-	        const downloadOptions = {
-	            headers: taskOptions.downloadUpdateOptions.requestHeaders,
-	            cancellationToken: taskOptions.downloadUpdateOptions.cancellationToken,
-	            sha2: fileInfo.info.sha2,
-	            sha512: fileInfo.info.sha512,
-	        };
-	        if (this.listenerCount(main_1.DOWNLOAD_PROGRESS) > 0) {
-	            downloadOptions.onProgress = it => this.emit(main_1.DOWNLOAD_PROGRESS, it);
-	        }
-	        const updateInfo = taskOptions.downloadUpdateOptions.updateInfoAndProvider.info;
-	        const version = updateInfo.version;
-	        const packageInfo = fileInfo.packageInfo;
-	        function getCacheUpdateFileName() {
-	            // NodeJS URL doesn't decode automatically
-	            const urlPath = decodeURIComponent(taskOptions.fileInfo.url.pathname);
-	            if (urlPath.endsWith(`.${taskOptions.fileExtension}`)) {
-	                return path.basename(urlPath);
-	            }
-	            else {
-	                // url like /latest, generate name
-	                return taskOptions.fileInfo.info.url;
-	            }
-	        }
-	        const downloadedUpdateHelper = await this.getOrCreateDownloadHelper();
-	        const cacheDir = downloadedUpdateHelper.cacheDirForPendingUpdate;
-	        await (0, fs_extra_1.mkdir)(cacheDir, { recursive: true });
-	        const updateFileName = getCacheUpdateFileName();
-	        let updateFile = path.join(cacheDir, updateFileName);
-	        const packageFile = packageInfo == null ? null : path.join(cacheDir, `package-${version}${path.extname(packageInfo.path) || ".7z"}`);
-	        const done = async (isSaveCache) => {
-	            await downloadedUpdateHelper.setDownloadedFile(updateFile, packageFile, updateInfo, fileInfo, updateFileName, isSaveCache);
-	            await taskOptions.done({
-	                ...updateInfo,
-	                downloadedFile: updateFile,
-	            });
-	            return packageFile == null ? [updateFile] : [updateFile, packageFile];
-	        };
-	        const log = this._logger;
-	        const cachedUpdateFile = await downloadedUpdateHelper.validateDownloadedPath(updateFile, updateInfo, fileInfo, log);
-	        if (cachedUpdateFile != null) {
-	            updateFile = cachedUpdateFile;
-	            return await done(false);
-	        }
-	        const removeFileIfAny = async () => {
-	            await downloadedUpdateHelper.clear().catch(() => {
-	                // ignore
-	            });
-	            return await (0, fs_extra_1.unlink)(updateFile).catch(() => {
-	                // ignore
-	            });
-	        };
-	        const tempUpdateFile = await (0, DownloadedUpdateHelper_1.createTempUpdateFile)(`temp-${updateFileName}`, cacheDir, log);
-	        try {
-	            await taskOptions.task(tempUpdateFile, downloadOptions, packageFile, removeFileIfAny);
-	            await (0, fs_extra_1.rename)(tempUpdateFile, updateFile);
-	        }
-	        catch (e) {
-	            await removeFileIfAny();
-	            if (e instanceof builder_util_runtime_1.CancellationError) {
-	                log.info("cancelled");
-	                this.emit("update-cancelled", updateInfo);
-	            }
-	            throw e;
-	        }
-	        log.info(`New version ${version} has been downloaded to ${updateFile}`);
-	        return await done(true);
-	    }
-	};
-	AppUpdater.AppUpdater = AppUpdater$1;
-	function hasPrereleaseComponents(version) {
-	    const versionPrereleaseComponent = (0, semver_1.prerelease)(version);
-	    return versionPrereleaseComponent != null && versionPrereleaseComponent.length > 0;
-	}
-	/** @private */
-	class NoOpLogger {
-	    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-	    info(message) {
-	        // ignore
-	    }
-	    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-	    warn(message) {
-	        // ignore
-	    }
-	    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-	    error(message) {
-	        // ignore
-	    }
-	}
-	AppUpdater.NoOpLogger = NoOpLogger;
-
-	return AppUpdater;
-}
-
-var AppImageUpdater = {};
-
-var BaseUpdater = {};
-
-var hasRequiredBaseUpdater;
-
-function requireBaseUpdater () {
-	if (hasRequiredBaseUpdater) return BaseUpdater;
-	hasRequiredBaseUpdater = 1;
-	Object.defineProperty(BaseUpdater, "__esModule", { value: true });
-	BaseUpdater.BaseUpdater = void 0;
-	const child_process_1 = require$$1$6;
-	const AppUpdater_1 = requireAppUpdater();
-	let BaseUpdater$1 = class BaseUpdater extends AppUpdater_1.AppUpdater {
-	    constructor(options, app) {
-	        super(options, app);
-	        this.quitAndInstallCalled = false;
-	        this.quitHandlerAdded = false;
-	    }
-	    quitAndInstall(isSilent = false, isForceRunAfter = false) {
-	        this._logger.info(`Install on explicit quitAndInstall`);
-	        // If NOT in silent mode use `autoRunAppAfterInstall` to determine whether to force run the app
-	        const isInstalled = this.install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall);
-	        if (isInstalled) {
-	            setImmediate(() => {
-	                // this event is normally emitted when calling quitAndInstall, this emulates that
-	                require$$1$5.autoUpdater.emit("before-quit-for-update");
-	                this.app.quit();
-	            });
-	        }
-	        else {
-	            this.quitAndInstallCalled = false;
-	        }
-	    }
-	    executeDownload(taskOptions) {
-	        return super.executeDownload({
-	            ...taskOptions,
-	            done: event => {
-	                this.dispatchUpdateDownloaded(event);
-	                this.addQuitHandler();
-	                return Promise.resolve();
-	            },
-	        });
-	    }
-	    // must be sync (because quit even handler is not async)
-	    install(isSilent = false, isForceRunAfter = false) {
-	        if (this.quitAndInstallCalled) {
-	            this._logger.warn("install call ignored: quitAndInstallCalled is set to true");
-	            return false;
-	        }
-	        const downloadedUpdateHelper = this.downloadedUpdateHelper;
-	        const installerPath = downloadedUpdateHelper == null ? null : downloadedUpdateHelper.file;
-	        const downloadedFileInfo = downloadedUpdateHelper == null ? null : downloadedUpdateHelper.downloadedFileInfo;
-	        if (installerPath == null || downloadedFileInfo == null) {
-	            this.dispatchError(new Error("No valid update available, can't quit and install"));
-	            return false;
-	        }
-	        // prevent calling several times
-	        this.quitAndInstallCalled = true;
-	        try {
-	            this._logger.info(`Install: isSilent: ${isSilent}, isForceRunAfter: ${isForceRunAfter}`);
-	            return this.doInstall({
-	                installerPath,
-	                isSilent,
-	                isForceRunAfter,
-	                isAdminRightsRequired: downloadedFileInfo.isAdminRightsRequired,
-	            });
-	        }
-	        catch (e) {
-	            this.dispatchError(e);
-	            return false;
-	        }
-	    }
-	    addQuitHandler() {
-	        if (this.quitHandlerAdded || !this.autoInstallOnAppQuit) {
-	            return;
-	        }
-	        this.quitHandlerAdded = true;
-	        this.app.onQuit(exitCode => {
-	            if (this.quitAndInstallCalled) {
-	                this._logger.info("Update installer has already been triggered. Quitting application.");
-	                return;
-	            }
-	            if (!this.autoInstallOnAppQuit) {
-	                this._logger.info("Update will not be installed on quit because autoInstallOnAppQuit is set to false.");
-	                return;
-	            }
-	            if (exitCode !== 0) {
-	                this._logger.info(`Update will be not installed on quit because application is quitting with exit code ${exitCode}`);
-	                return;
-	            }
-	            this._logger.info("Auto install update on quit");
-	            this.install(true, false);
-	        });
-	    }
-	    wrapSudo() {
-	        const { name } = this.app;
-	        const installComment = `"${name} would like to update"`;
-	        const sudo = this.spawnSyncLog("which gksudo || which kdesudo || which pkexec || which beesu");
-	        const command = [sudo];
-	        if (/kdesudo/i.test(sudo)) {
-	            command.push("--comment", installComment);
-	            command.push("-c");
-	        }
-	        else if (/gksudo/i.test(sudo)) {
-	            command.push("--message", installComment);
-	        }
-	        else if (/pkexec/i.test(sudo)) {
-	            command.push("--disable-internal-agent");
-	        }
-	        return command.join(" ");
-	    }
-	    spawnSyncLog(cmd, args = [], env = {}) {
-	        this._logger.info(`Executing: ${cmd} with args: ${args}`);
-	        const response = (0, child_process_1.spawnSync)(cmd, args, {
-	            env: { ...process.env, ...env },
-	            encoding: "utf-8",
-	            shell: true,
-	        });
-	        return response.stdout.trim();
-	    }
-	    /**
-	     * This handles both node 8 and node 10 way of emitting error when spawning a process
-	     *   - node 8: Throws the error
-	     *   - node 10: Emit the error(Need to listen with on)
-	     */
-	    // https://github.com/electron-userland/electron-builder/issues/1129
-	    // Node 8 sends errors: https://nodejs.org/dist/latest-v8.x/docs/api/errors.html#errors_common_system_errors
-	    async spawnLog(cmd, args = [], env = undefined, stdio = "ignore") {
-	        this._logger.info(`Executing: ${cmd} with args: ${args}`);
-	        return new Promise((resolve, reject) => {
-	            try {
-	                const params = { stdio, env, detached: true };
-	                const p = (0, child_process_1.spawn)(cmd, args, params);
-	                p.on("error", error => {
-	                    reject(error);
-	                });
-	                p.unref();
-	                if (p.pid !== undefined) {
-	                    resolve(true);
-	                }
-	            }
-	            catch (error) {
-	                reject(error);
-	            }
-	        });
-	    }
-	};
-	BaseUpdater.BaseUpdater = BaseUpdater$1;
-
-	return BaseUpdater;
-}
-
-var FileWithEmbeddedBlockMapDifferentialDownloader$1 = {};
+var GenericDifferentialDownloader$1 = {};
 
 var DifferentialDownloader$1 = {};
 
@@ -17775,7 +16013,8 @@ var DataSplitter$1 = {};
 var downloadPlanBuilder = {};
 
 Object.defineProperty(downloadPlanBuilder, "__esModule", { value: true });
-downloadPlanBuilder.computeOperations = downloadPlanBuilder.OperationKind = void 0;
+downloadPlanBuilder.OperationKind = void 0;
+downloadPlanBuilder.computeOperations = computeOperations;
 var OperationKind$1;
 (function (OperationKind) {
     OperationKind[OperationKind["COPY"] = 0] = "COPY";
@@ -17844,7 +16083,6 @@ function computeOperations(oldBlockMap, newBlockMap, logger) {
     }
     return operations;
 }
-downloadPlanBuilder.computeOperations = computeOperations;
 const isValidateOperationRange = process.env["DIFFERENTIAL_DOWNLOAD_PLAN_BUILDER_VALIDATE_RANGES"] === "true";
 function validateAndAdd(operation, operations, checksum, index) {
     if (isValidateOperationRange && operations.length !== 0) {
@@ -17888,10 +16126,11 @@ function buildBlockFileMap(list) {
 }
 
 Object.defineProperty(DataSplitter$1, "__esModule", { value: true });
-DataSplitter$1.DataSplitter = DataSplitter$1.copyData = void 0;
-const builder_util_runtime_1$3 = requireOut();
+DataSplitter$1.DataSplitter = void 0;
+DataSplitter$1.copyData = copyData;
+const builder_util_runtime_1$3 = out;
 const fs_1$1 = require$$1$2;
-const stream_1$1 = require$$0$2;
+const stream_1$1 = require$$0$1;
 const downloadPlanBuilder_1$2 = downloadPlanBuilder;
 const DOUBLE_CRLF = Buffer.from("\r\n\r\n");
 var ReadState;
@@ -17914,7 +16153,6 @@ function copyData(task, out, oldFileFd, reject, resolve) {
         end: false,
     });
 }
-DataSplitter$1.copyData = copyData;
 class DataSplitter extends stream_1$1.Writable {
     constructor(out, options, partIndexToTaskIndex, boundary, partIndexToLength, finishHandler) {
         super();
@@ -18091,8 +16329,9 @@ DataSplitter$1.DataSplitter = DataSplitter;
 var multipleRangeDownloader = {};
 
 Object.defineProperty(multipleRangeDownloader, "__esModule", { value: true });
-multipleRangeDownloader.checkIsRangesSupported = multipleRangeDownloader.executeTasksUsingMultipleRangeRequests = void 0;
-const builder_util_runtime_1$2 = requireOut();
+multipleRangeDownloader.executeTasksUsingMultipleRangeRequests = executeTasksUsingMultipleRangeRequests;
+multipleRangeDownloader.checkIsRangesSupported = checkIsRangesSupported;
+const builder_util_runtime_1$2 = out;
 const DataSplitter_1$1 = DataSplitter$1;
 const downloadPlanBuilder_1$1 = downloadPlanBuilder;
 function executeTasksUsingMultipleRangeRequests(differentialDownloader, tasks, out, oldFileFd, reject) {
@@ -18114,7 +16353,6 @@ function executeTasksUsingMultipleRangeRequests(differentialDownloader, tasks, o
     };
     return w;
 }
-multipleRangeDownloader.executeTasksUsingMultipleRangeRequests = executeTasksUsingMultipleRangeRequests;
 function doExecuteTasks(differentialDownloader, options, out, resolve, reject) {
     let ranges = "bytes=";
     let partCount = 0;
@@ -18199,13 +16437,12 @@ function checkIsRangesSupported(response, reject) {
     }
     return true;
 }
-multipleRangeDownloader.checkIsRangesSupported = checkIsRangesSupported;
 
 var ProgressDifferentialDownloadCallbackTransform$1 = {};
 
 Object.defineProperty(ProgressDifferentialDownloadCallbackTransform$1, "__esModule", { value: true });
 ProgressDifferentialDownloadCallbackTransform$1.ProgressDifferentialDownloadCallbackTransform = void 0;
-const stream_1 = require$$0$2;
+const stream_1 = require$$0$1;
 var OperationKind;
 (function (OperationKind) {
     OperationKind[OperationKind["COPY"] = 0] = "COPY";
@@ -18294,7 +16531,7 @@ ProgressDifferentialDownloadCallbackTransform$1.ProgressDifferentialDownloadCall
 
 Object.defineProperty(DifferentialDownloader$1, "__esModule", { value: true });
 DifferentialDownloader$1.DifferentialDownloader = void 0;
-const builder_util_runtime_1$1 = requireOut();
+const builder_util_runtime_1$1 = out;
 const fs_extra_1$1 = lib;
 const fs_1 = require$$1$2;
 const DataSplitter_1 = DataSplitter$1;
@@ -18481,7 +16718,7 @@ class DifferentialDownloader {
                 }
                 const request = this.httpExecutor.createRequest(requestOptions, response => {
                     response.on("error", reject);
-                    response.on("abort", () => {
+                    response.on("aborted", () => {
                         reject(new Error("response has been aborted by the server"));
                     });
                     // Electron net handles redirects automatically, our NodeJS test server doesn't use redirects - so, we don't check 3xx codes.
@@ -18537,6 +16774,10 @@ class DifferentialDownloader {
                 if (!(0, multipleRangeDownloader_1.checkIsRangesSupported)(response, reject)) {
                     return;
                 }
+                response.on("error", reject);
+                response.on("aborted", () => {
+                    reject(new Error("response has been aborted by the server"));
+                });
                 response.on("data", dataHandler);
                 response.on("end", () => resolve());
             });
@@ -18555,12 +16796,839 @@ function removeQuery(url) {
     return index < 0 ? url : url.substring(0, index);
 }
 
+Object.defineProperty(GenericDifferentialDownloader$1, "__esModule", { value: true });
+GenericDifferentialDownloader$1.GenericDifferentialDownloader = void 0;
+const DifferentialDownloader_1$1 = DifferentialDownloader$1;
+class GenericDifferentialDownloader extends DifferentialDownloader_1$1.DifferentialDownloader {
+    download(oldBlockMap, newBlockMap) {
+        return this.doDownload(oldBlockMap, newBlockMap);
+    }
+}
+GenericDifferentialDownloader$1.GenericDifferentialDownloader = GenericDifferentialDownloader;
+
+var hasRequiredAppUpdater;
+
+function requireAppUpdater () {
+	if (hasRequiredAppUpdater) return AppUpdater;
+	hasRequiredAppUpdater = 1;
+	Object.defineProperty(AppUpdater, "__esModule", { value: true });
+	AppUpdater.NoOpLogger = AppUpdater.AppUpdater = void 0;
+	const builder_util_runtime_1 = out;
+	const crypto_1 = require$$0$2;
+	const os_1 = require$$2;
+	const events_1 = require$$0;
+	const fs_extra_1 = lib;
+	const js_yaml_1 = jsYaml;
+	const lazy_val_1 = main$1;
+	const path = require$$1$4;
+	const semver_1 = semver$1;
+	const DownloadedUpdateHelper_1 = DownloadedUpdateHelper$1;
+	const ElectronAppAdapter_1 = ElectronAppAdapter$1;
+	const electronHttpExecutor_1 = electronHttpExecutor;
+	const GenericProvider_1 = GenericProvider$1;
+	const main_1 = requireMain();
+	const providerFactory_1 = providerFactory;
+	const zlib_1 = require$$15;
+	const util_1 = util;
+	const GenericDifferentialDownloader_1 = GenericDifferentialDownloader$1;
+	let AppUpdater$1 = class AppUpdater extends events_1.EventEmitter {
+	    /**
+	     * Get the update channel. Doesn't return `channel` from the update configuration, only if was previously set.
+	     */
+	    get channel() {
+	        return this._channel;
+	    }
+	    /**
+	     * Set the update channel. Overrides `channel` in the update configuration.
+	     *
+	     * `allowDowngrade` will be automatically set to `true`. If this behavior is not suitable for you, simple set `allowDowngrade` explicitly after.
+	     */
+	    set channel(value) {
+	        if (this._channel != null) {
+	            // noinspection SuspiciousTypeOfGuard
+	            if (typeof value !== "string") {
+	                throw (0, builder_util_runtime_1.newError)(`Channel must be a string, but got: ${value}`, "ERR_UPDATER_INVALID_CHANNEL");
+	            }
+	            else if (value.length === 0) {
+	                throw (0, builder_util_runtime_1.newError)(`Channel must be not an empty string`, "ERR_UPDATER_INVALID_CHANNEL");
+	            }
+	        }
+	        this._channel = value;
+	        this.allowDowngrade = true;
+	    }
+	    /**
+	     *  Shortcut for explicitly adding auth tokens to request headers
+	     */
+	    addAuthHeader(token) {
+	        this.requestHeaders = Object.assign({}, this.requestHeaders, {
+	            authorization: token,
+	        });
+	    }
+	    // noinspection JSMethodCanBeStatic,JSUnusedGlobalSymbols
+	    get netSession() {
+	        return (0, electronHttpExecutor_1.getNetSession)();
+	    }
+	    /**
+	     * The logger. You can pass [electron-log](https://github.com/megahertz/electron-log), [winston](https://github.com/winstonjs/winston) or another logger with the following interface: `{ info(), warn(), error() }`.
+	     * Set it to `null` if you would like to disable a logging feature.
+	     */
+	    get logger() {
+	        return this._logger;
+	    }
+	    set logger(value) {
+	        this._logger = value == null ? new NoOpLogger() : value;
+	    }
+	    // noinspection JSUnusedGlobalSymbols
+	    /**
+	     * test only
+	     * @private
+	     */
+	    set updateConfigPath(value) {
+	        this.clientPromise = null;
+	        this._appUpdateConfigPath = value;
+	        this.configOnDisk = new lazy_val_1.Lazy(() => this.loadUpdateConfig());
+	    }
+	    constructor(options, app) {
+	        super();
+	        /**
+	         * Whether to automatically download an update when it is found.
+	         */
+	        this.autoDownload = true;
+	        /**
+	         * Whether to automatically install a downloaded update on app quit (if `quitAndInstall` was not called before).
+	         */
+	        this.autoInstallOnAppQuit = true;
+	        /**
+	         * *windows-only* Whether to run the app after finish install when run the installer NOT in silent mode.
+	         * @default true
+	         */
+	        this.autoRunAppAfterInstall = true;
+	        /**
+	         * *GitHub provider only.* Whether to allow update to pre-release versions. Defaults to `true` if application version contains prerelease components (e.g. `0.12.1-alpha.1`, here `alpha` is a prerelease component), otherwise `false`.
+	         *
+	         * If `true`, downgrade will be allowed (`allowDowngrade` will be set to `true`).
+	         */
+	        this.allowPrerelease = false;
+	        /**
+	         * *GitHub provider only.* Get all release notes (from current version to latest), not just the latest.
+	         * @default false
+	         */
+	        this.fullChangelog = false;
+	        /**
+	         * Whether to allow version downgrade (when a user from the beta channel wants to go back to the stable channel).
+	         *
+	         * Taken in account only if channel differs (pre-release version component in terms of semantic versioning).
+	         *
+	         * @default false
+	         */
+	        this.allowDowngrade = false;
+	        /**
+	         * Web installer files might not have signature verification, this switch prevents to load them unless it is needed.
+	         *
+	         * Currently false to prevent breaking the current API, but it should be changed to default true at some point that
+	         * breaking changes are allowed.
+	         *
+	         * @default false
+	         */
+	        this.disableWebInstaller = false;
+	        /**
+	         * *NSIS only* Disable differential downloads and always perform full download of installer.
+	         *
+	         * @default false
+	         */
+	        this.disableDifferentialDownload = false;
+	        /**
+	         * Allows developer to force the updater to work in "dev" mode, looking for "dev-app-update.yml" instead of "app-update.yml"
+	         * Dev: `path.join(this.app.getAppPath(), "dev-app-update.yml")`
+	         * Prod: `path.join(process.resourcesPath!, "app-update.yml")`
+	         *
+	         * @default false
+	         */
+	        this.forceDevUpdateConfig = false;
+	        this._channel = null;
+	        this.downloadedUpdateHelper = null;
+	        /**
+	         *  The request headers.
+	         */
+	        this.requestHeaders = null;
+	        this._logger = console;
+	        // noinspection JSUnusedGlobalSymbols
+	        /**
+	         * For type safety you can use signals, e.g. `autoUpdater.signals.updateDownloaded(() => {})` instead of `autoUpdater.on('update-available', () => {})`
+	         */
+	        this.signals = new main_1.UpdaterSignal(this);
+	        this._appUpdateConfigPath = null;
+	        this.clientPromise = null;
+	        this.stagingUserIdPromise = new lazy_val_1.Lazy(() => this.getOrCreateStagingUserId());
+	        // public, allow to read old config for anyone
+	        /** @internal */
+	        this.configOnDisk = new lazy_val_1.Lazy(() => this.loadUpdateConfig());
+	        this.checkForUpdatesPromise = null;
+	        this.downloadPromise = null;
+	        this.updateInfoAndProvider = null;
+	        /**
+	         * @private
+	         * @internal
+	         */
+	        this._testOnlyOptions = null;
+	        this.on("error", (error) => {
+	            this._logger.error(`Error: ${error.stack || error.message}`);
+	        });
+	        if (app == null) {
+	            this.app = new ElectronAppAdapter_1.ElectronAppAdapter();
+	            this.httpExecutor = new electronHttpExecutor_1.ElectronHttpExecutor((authInfo, callback) => this.emit("login", authInfo, callback));
+	        }
+	        else {
+	            this.app = app;
+	            this.httpExecutor = null;
+	        }
+	        const currentVersionString = this.app.version;
+	        const currentVersion = (0, semver_1.parse)(currentVersionString);
+	        if (currentVersion == null) {
+	            throw (0, builder_util_runtime_1.newError)(`App version is not a valid semver version: "${currentVersionString}"`, "ERR_UPDATER_INVALID_VERSION");
+	        }
+	        this.currentVersion = currentVersion;
+	        this.allowPrerelease = hasPrereleaseComponents(currentVersion);
+	        if (options != null) {
+	            this.setFeedURL(options);
+	            if (typeof options !== "string" && options.requestHeaders) {
+	                this.requestHeaders = options.requestHeaders;
+	            }
+	        }
+	    }
+	    //noinspection JSMethodCanBeStatic,JSUnusedGlobalSymbols
+	    getFeedURL() {
+	        return "Deprecated. Do not use it.";
+	    }
+	    /**
+	     * Configure update provider. If value is `string`, [GenericServerOptions](/configuration/publish#genericserveroptions) will be set with value as `url`.
+	     * @param options If you want to override configuration in the `app-update.yml`.
+	     */
+	    setFeedURL(options) {
+	        const runtimeOptions = this.createProviderRuntimeOptions();
+	        // https://github.com/electron-userland/electron-builder/issues/1105
+	        let provider;
+	        if (typeof options === "string") {
+	            provider = new GenericProvider_1.GenericProvider({ provider: "generic", url: options }, this, {
+	                ...runtimeOptions,
+	                isUseMultipleRangeRequest: (0, providerFactory_1.isUrlProbablySupportMultiRangeRequests)(options),
+	            });
+	        }
+	        else {
+	            provider = (0, providerFactory_1.createClient)(options, this, runtimeOptions);
+	        }
+	        this.clientPromise = Promise.resolve(provider);
+	    }
+	    /**
+	     * Asks the server whether there is an update.
+	     */
+	    checkForUpdates() {
+	        if (!this.isUpdaterActive()) {
+	            return Promise.resolve(null);
+	        }
+	        let checkForUpdatesPromise = this.checkForUpdatesPromise;
+	        if (checkForUpdatesPromise != null) {
+	            this._logger.info("Checking for update (already in progress)");
+	            return checkForUpdatesPromise;
+	        }
+	        const nullizePromise = () => (this.checkForUpdatesPromise = null);
+	        this._logger.info("Checking for update");
+	        checkForUpdatesPromise = this.doCheckForUpdates()
+	            .then(it => {
+	            nullizePromise();
+	            return it;
+	        })
+	            .catch((e) => {
+	            nullizePromise();
+	            this.emit("error", e, `Cannot check for updates: ${(e.stack || e).toString()}`);
+	            throw e;
+	        });
+	        this.checkForUpdatesPromise = checkForUpdatesPromise;
+	        return checkForUpdatesPromise;
+	    }
+	    isUpdaterActive() {
+	        const isEnabled = this.app.isPackaged || this.forceDevUpdateConfig;
+	        if (!isEnabled) {
+	            this._logger.info("Skip checkForUpdates because application is not packed and dev update config is not forced");
+	            return false;
+	        }
+	        return true;
+	    }
+	    // noinspection JSUnusedGlobalSymbols
+	    checkForUpdatesAndNotify(downloadNotification) {
+	        return this.checkForUpdates().then(it => {
+	            if (!(it === null || it === void 0 ? void 0 : it.downloadPromise)) {
+	                if (this._logger.debug != null) {
+	                    this._logger.debug("checkForUpdatesAndNotify called, downloadPromise is null");
+	                }
+	                return it;
+	            }
+	            void it.downloadPromise.then(() => {
+	                const notificationContent = AppUpdater.formatDownloadNotification(it.updateInfo.version, this.app.name, downloadNotification);
+	                new (require$$1$5.Notification)(notificationContent).show();
+	            });
+	            return it;
+	        });
+	    }
+	    static formatDownloadNotification(version, appName, downloadNotification) {
+	        if (downloadNotification == null) {
+	            downloadNotification = {
+	                title: "A new update is ready to install",
+	                body: `{appName} version {version} has been downloaded and will be automatically installed on exit`,
+	            };
+	        }
+	        downloadNotification = {
+	            title: downloadNotification.title.replace("{appName}", appName).replace("{version}", version),
+	            body: downloadNotification.body.replace("{appName}", appName).replace("{version}", version),
+	        };
+	        return downloadNotification;
+	    }
+	    async isStagingMatch(updateInfo) {
+	        const rawStagingPercentage = updateInfo.stagingPercentage;
+	        let stagingPercentage = rawStagingPercentage;
+	        if (stagingPercentage == null) {
+	            return true;
+	        }
+	        stagingPercentage = parseInt(stagingPercentage, 10);
+	        if (isNaN(stagingPercentage)) {
+	            this._logger.warn(`Staging percentage is NaN: ${rawStagingPercentage}`);
+	            return true;
+	        }
+	        // convert from user 0-100 to internal 0-1
+	        stagingPercentage = stagingPercentage / 100;
+	        const stagingUserId = await this.stagingUserIdPromise.value;
+	        const val = builder_util_runtime_1.UUID.parse(stagingUserId).readUInt32BE(12);
+	        const percentage = val / 0xffffffff;
+	        this._logger.info(`Staging percentage: ${stagingPercentage}, percentage: ${percentage}, user id: ${stagingUserId}`);
+	        return percentage < stagingPercentage;
+	    }
+	    computeFinalHeaders(headers) {
+	        if (this.requestHeaders != null) {
+	            Object.assign(headers, this.requestHeaders);
+	        }
+	        return headers;
+	    }
+	    async isUpdateAvailable(updateInfo) {
+	        const latestVersion = (0, semver_1.parse)(updateInfo.version);
+	        if (latestVersion == null) {
+	            throw (0, builder_util_runtime_1.newError)(`This file could not be downloaded, or the latest version (from update server) does not have a valid semver version: "${updateInfo.version}"`, "ERR_UPDATER_INVALID_VERSION");
+	        }
+	        const currentVersion = this.currentVersion;
+	        if ((0, semver_1.eq)(latestVersion, currentVersion)) {
+	            return false;
+	        }
+	        const minimumSystemVersion = updateInfo === null || updateInfo === void 0 ? void 0 : updateInfo.minimumSystemVersion;
+	        const currentOSVersion = (0, os_1.release)();
+	        if (minimumSystemVersion) {
+	            try {
+	                if ((0, semver_1.lt)(currentOSVersion, minimumSystemVersion)) {
+	                    this._logger.info(`Current OS version ${currentOSVersion} is less than the minimum OS version required ${minimumSystemVersion} for version ${currentOSVersion}`);
+	                    return false;
+	                }
+	            }
+	            catch (e) {
+	                this._logger.warn(`Failed to compare current OS version(${currentOSVersion}) with minimum OS version(${minimumSystemVersion}): ${(e.message || e).toString()}`);
+	            }
+	        }
+	        const isStagingMatch = await this.isStagingMatch(updateInfo);
+	        if (!isStagingMatch) {
+	            return false;
+	        }
+	        // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405033227
+	        // https://github.com/electron-userland/electron-builder/pull/3111#issuecomment-405030797
+	        const isLatestVersionNewer = (0, semver_1.gt)(latestVersion, currentVersion);
+	        const isLatestVersionOlder = (0, semver_1.lt)(latestVersion, currentVersion);
+	        if (isLatestVersionNewer) {
+	            return true;
+	        }
+	        return this.allowDowngrade && isLatestVersionOlder;
+	    }
+	    async getUpdateInfoAndProvider() {
+	        await this.app.whenReady();
+	        if (this.clientPromise == null) {
+	            this.clientPromise = this.configOnDisk.value.then(it => (0, providerFactory_1.createClient)(it, this, this.createProviderRuntimeOptions()));
+	        }
+	        const client = await this.clientPromise;
+	        const stagingUserId = await this.stagingUserIdPromise.value;
+	        client.setRequestHeaders(this.computeFinalHeaders({ "x-user-staging-id": stagingUserId }));
+	        return {
+	            info: await client.getLatestVersion(),
+	            provider: client,
+	        };
+	    }
+	    // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+	    createProviderRuntimeOptions() {
+	        return {
+	            isUseMultipleRangeRequest: true,
+	            platform: this._testOnlyOptions == null ? process.platform : this._testOnlyOptions.platform,
+	            executor: this.httpExecutor,
+	        };
+	    }
+	    async doCheckForUpdates() {
+	        this.emit("checking-for-update");
+	        const result = await this.getUpdateInfoAndProvider();
+	        const updateInfo = result.info;
+	        if (!(await this.isUpdateAvailable(updateInfo))) {
+	            this._logger.info(`Update for version ${this.currentVersion.format()} is not available (latest version: ${updateInfo.version}, downgrade is ${this.allowDowngrade ? "allowed" : "disallowed"}).`);
+	            this.emit("update-not-available", updateInfo);
+	            return {
+	                versionInfo: updateInfo,
+	                updateInfo,
+	            };
+	        }
+	        this.updateInfoAndProvider = result;
+	        this.onUpdateAvailable(updateInfo);
+	        const cancellationToken = new builder_util_runtime_1.CancellationToken();
+	        //noinspection ES6MissingAwait
+	        return {
+	            versionInfo: updateInfo,
+	            updateInfo,
+	            cancellationToken,
+	            downloadPromise: this.autoDownload ? this.downloadUpdate(cancellationToken) : null,
+	        };
+	    }
+	    onUpdateAvailable(updateInfo) {
+	        this._logger.info(`Found version ${updateInfo.version} (url: ${(0, builder_util_runtime_1.asArray)(updateInfo.files)
+	            .map(it => it.url)
+	            .join(", ")})`);
+	        this.emit("update-available", updateInfo);
+	    }
+	    /**
+	     * Start downloading update manually. You can use this method if `autoDownload` option is set to `false`.
+	     * @returns {Promise<Array<string>>} Paths to downloaded files.
+	     */
+	    downloadUpdate(cancellationToken = new builder_util_runtime_1.CancellationToken()) {
+	        const updateInfoAndProvider = this.updateInfoAndProvider;
+	        if (updateInfoAndProvider == null) {
+	            const error = new Error("Please check update first");
+	            this.dispatchError(error);
+	            return Promise.reject(error);
+	        }
+	        if (this.downloadPromise != null) {
+	            this._logger.info("Downloading update (already in progress)");
+	            return this.downloadPromise;
+	        }
+	        this._logger.info(`Downloading update from ${(0, builder_util_runtime_1.asArray)(updateInfoAndProvider.info.files)
+	            .map(it => it.url)
+	            .join(", ")}`);
+	        const errorHandler = (e) => {
+	            // https://github.com/electron-userland/electron-builder/issues/1150#issuecomment-436891159
+	            if (!(e instanceof builder_util_runtime_1.CancellationError)) {
+	                try {
+	                    this.dispatchError(e);
+	                }
+	                catch (nestedError) {
+	                    this._logger.warn(`Cannot dispatch error event: ${nestedError.stack || nestedError}`);
+	                }
+	            }
+	            return e;
+	        };
+	        this.downloadPromise = this.doDownloadUpdate({
+	            updateInfoAndProvider,
+	            requestHeaders: this.computeRequestHeaders(updateInfoAndProvider.provider),
+	            cancellationToken,
+	            disableWebInstaller: this.disableWebInstaller,
+	            disableDifferentialDownload: this.disableDifferentialDownload,
+	        })
+	            .catch((e) => {
+	            throw errorHandler(e);
+	        })
+	            .finally(() => {
+	            this.downloadPromise = null;
+	        });
+	        return this.downloadPromise;
+	    }
+	    dispatchError(e) {
+	        this.emit("error", e, (e.stack || e).toString());
+	    }
+	    dispatchUpdateDownloaded(event) {
+	        this.emit(main_1.UPDATE_DOWNLOADED, event);
+	    }
+	    async loadUpdateConfig() {
+	        if (this._appUpdateConfigPath == null) {
+	            this._appUpdateConfigPath = this.app.appUpdateConfigPath;
+	        }
+	        return (0, js_yaml_1.load)(await (0, fs_extra_1.readFile)(this._appUpdateConfigPath, "utf-8"));
+	    }
+	    computeRequestHeaders(provider) {
+	        const fileExtraDownloadHeaders = provider.fileExtraDownloadHeaders;
+	        if (fileExtraDownloadHeaders != null) {
+	            const requestHeaders = this.requestHeaders;
+	            return requestHeaders == null
+	                ? fileExtraDownloadHeaders
+	                : {
+	                    ...fileExtraDownloadHeaders,
+	                    ...requestHeaders,
+	                };
+	        }
+	        return this.computeFinalHeaders({ accept: "*/*" });
+	    }
+	    async getOrCreateStagingUserId() {
+	        const file = path.join(this.app.userDataPath, ".updaterId");
+	        try {
+	            const id = await (0, fs_extra_1.readFile)(file, "utf-8");
+	            if (builder_util_runtime_1.UUID.check(id)) {
+	                return id;
+	            }
+	            else {
+	                this._logger.warn(`Staging user id file exists, but content was invalid: ${id}`);
+	            }
+	        }
+	        catch (e) {
+	            if (e.code !== "ENOENT") {
+	                this._logger.warn(`Couldn't read staging user ID, creating a blank one: ${e}`);
+	            }
+	        }
+	        const id = builder_util_runtime_1.UUID.v5((0, crypto_1.randomBytes)(4096), builder_util_runtime_1.UUID.OID);
+	        this._logger.info(`Generated new staging user ID: ${id}`);
+	        try {
+	            await (0, fs_extra_1.outputFile)(file, id);
+	        }
+	        catch (e) {
+	            this._logger.warn(`Couldn't write out staging user ID: ${e}`);
+	        }
+	        return id;
+	    }
+	    /** @internal */
+	    get isAddNoCacheQuery() {
+	        const headers = this.requestHeaders;
+	        // https://github.com/electron-userland/electron-builder/issues/3021
+	        if (headers == null) {
+	            return true;
+	        }
+	        for (const headerName of Object.keys(headers)) {
+	            const s = headerName.toLowerCase();
+	            if (s === "authorization" || s === "private-token") {
+	                return false;
+	            }
+	        }
+	        return true;
+	    }
+	    async getOrCreateDownloadHelper() {
+	        let result = this.downloadedUpdateHelper;
+	        if (result == null) {
+	            const dirName = (await this.configOnDisk.value).updaterCacheDirName;
+	            const logger = this._logger;
+	            if (dirName == null) {
+	                logger.error("updaterCacheDirName is not specified in app-update.yml Was app build using at least electron-builder 20.34.0?");
+	            }
+	            const cacheDir = path.join(this.app.baseCachePath, dirName || this.app.name);
+	            if (logger.debug != null) {
+	                logger.debug(`updater cache dir: ${cacheDir}`);
+	            }
+	            result = new DownloadedUpdateHelper_1.DownloadedUpdateHelper(cacheDir);
+	            this.downloadedUpdateHelper = result;
+	        }
+	        return result;
+	    }
+	    async executeDownload(taskOptions) {
+	        const fileInfo = taskOptions.fileInfo;
+	        const downloadOptions = {
+	            headers: taskOptions.downloadUpdateOptions.requestHeaders,
+	            cancellationToken: taskOptions.downloadUpdateOptions.cancellationToken,
+	            sha2: fileInfo.info.sha2,
+	            sha512: fileInfo.info.sha512,
+	        };
+	        if (this.listenerCount(main_1.DOWNLOAD_PROGRESS) > 0) {
+	            downloadOptions.onProgress = it => this.emit(main_1.DOWNLOAD_PROGRESS, it);
+	        }
+	        const updateInfo = taskOptions.downloadUpdateOptions.updateInfoAndProvider.info;
+	        const version = updateInfo.version;
+	        const packageInfo = fileInfo.packageInfo;
+	        function getCacheUpdateFileName() {
+	            // NodeJS URL doesn't decode automatically
+	            const urlPath = decodeURIComponent(taskOptions.fileInfo.url.pathname);
+	            if (urlPath.endsWith(`.${taskOptions.fileExtension}`)) {
+	                return path.basename(urlPath);
+	            }
+	            else {
+	                // url like /latest, generate name
+	                return taskOptions.fileInfo.info.url;
+	            }
+	        }
+	        const downloadedUpdateHelper = await this.getOrCreateDownloadHelper();
+	        const cacheDir = downloadedUpdateHelper.cacheDirForPendingUpdate;
+	        await (0, fs_extra_1.mkdir)(cacheDir, { recursive: true });
+	        const updateFileName = getCacheUpdateFileName();
+	        let updateFile = path.join(cacheDir, updateFileName);
+	        const packageFile = packageInfo == null ? null : path.join(cacheDir, `package-${version}${path.extname(packageInfo.path) || ".7z"}`);
+	        const done = async (isSaveCache) => {
+	            await downloadedUpdateHelper.setDownloadedFile(updateFile, packageFile, updateInfo, fileInfo, updateFileName, isSaveCache);
+	            await taskOptions.done({
+	                ...updateInfo,
+	                downloadedFile: updateFile,
+	            });
+	            return packageFile == null ? [updateFile] : [updateFile, packageFile];
+	        };
+	        const log = this._logger;
+	        const cachedUpdateFile = await downloadedUpdateHelper.validateDownloadedPath(updateFile, updateInfo, fileInfo, log);
+	        if (cachedUpdateFile != null) {
+	            updateFile = cachedUpdateFile;
+	            return await done(false);
+	        }
+	        const removeFileIfAny = async () => {
+	            await downloadedUpdateHelper.clear().catch(() => {
+	                // ignore
+	            });
+	            return await (0, fs_extra_1.unlink)(updateFile).catch(() => {
+	                // ignore
+	            });
+	        };
+	        const tempUpdateFile = await (0, DownloadedUpdateHelper_1.createTempUpdateFile)(`temp-${updateFileName}`, cacheDir, log);
+	        try {
+	            await taskOptions.task(tempUpdateFile, downloadOptions, packageFile, removeFileIfAny);
+	            await (0, fs_extra_1.rename)(tempUpdateFile, updateFile);
+	        }
+	        catch (e) {
+	            await removeFileIfAny();
+	            if (e instanceof builder_util_runtime_1.CancellationError) {
+	                log.info("cancelled");
+	                this.emit("update-cancelled", updateInfo);
+	            }
+	            throw e;
+	        }
+	        log.info(`New version ${version} has been downloaded to ${updateFile}`);
+	        return await done(true);
+	    }
+	    async differentialDownloadInstaller(fileInfo, downloadUpdateOptions, installerPath, provider, oldInstallerFileName) {
+	        try {
+	            if (this._testOnlyOptions != null && !this._testOnlyOptions.isUseDifferentialDownload) {
+	                return true;
+	            }
+	            const blockmapFileUrls = (0, util_1.blockmapFiles)(fileInfo.url, this.app.version, downloadUpdateOptions.updateInfoAndProvider.info.version);
+	            this._logger.info(`Download block maps (old: "${blockmapFileUrls[0]}", new: ${blockmapFileUrls[1]})`);
+	            const downloadBlockMap = async (url) => {
+	                const data = await this.httpExecutor.downloadToBuffer(url, {
+	                    headers: downloadUpdateOptions.requestHeaders,
+	                    cancellationToken: downloadUpdateOptions.cancellationToken,
+	                });
+	                if (data == null || data.length === 0) {
+	                    throw new Error(`Blockmap "${url.href}" is empty`);
+	                }
+	                try {
+	                    return JSON.parse((0, zlib_1.gunzipSync)(data).toString());
+	                }
+	                catch (e) {
+	                    throw new Error(`Cannot parse blockmap "${url.href}", error: ${e}`);
+	                }
+	            };
+	            const downloadOptions = {
+	                newUrl: fileInfo.url,
+	                oldFile: path.join(this.downloadedUpdateHelper.cacheDir, oldInstallerFileName),
+	                logger: this._logger,
+	                newFile: installerPath,
+	                isUseMultipleRangeRequest: provider.isUseMultipleRangeRequest,
+	                requestHeaders: downloadUpdateOptions.requestHeaders,
+	                cancellationToken: downloadUpdateOptions.cancellationToken,
+	            };
+	            if (this.listenerCount(main_1.DOWNLOAD_PROGRESS) > 0) {
+	                downloadOptions.onProgress = it => this.emit(main_1.DOWNLOAD_PROGRESS, it);
+	            }
+	            const blockMapDataList = await Promise.all(blockmapFileUrls.map(u => downloadBlockMap(u)));
+	            await new GenericDifferentialDownloader_1.GenericDifferentialDownloader(fileInfo.info, this.httpExecutor, downloadOptions).download(blockMapDataList[0], blockMapDataList[1]);
+	            return false;
+	        }
+	        catch (e) {
+	            this._logger.error(`Cannot download differentially, fallback to full download: ${e.stack || e}`);
+	            if (this._testOnlyOptions != null) {
+	                // test mode
+	                throw e;
+	            }
+	            return true;
+	        }
+	    }
+	};
+	AppUpdater.AppUpdater = AppUpdater$1;
+	function hasPrereleaseComponents(version) {
+	    const versionPrereleaseComponent = (0, semver_1.prerelease)(version);
+	    return versionPrereleaseComponent != null && versionPrereleaseComponent.length > 0;
+	}
+	/** @private */
+	class NoOpLogger {
+	    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+	    info(message) {
+	        // ignore
+	    }
+	    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+	    warn(message) {
+	        // ignore
+	    }
+	    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+	    error(message) {
+	        // ignore
+	    }
+	}
+	AppUpdater.NoOpLogger = NoOpLogger;
+	
+	return AppUpdater;
+}
+
+var hasRequiredBaseUpdater;
+
+function requireBaseUpdater () {
+	if (hasRequiredBaseUpdater) return BaseUpdater;
+	hasRequiredBaseUpdater = 1;
+	Object.defineProperty(BaseUpdater, "__esModule", { value: true });
+	BaseUpdater.BaseUpdater = void 0;
+	const child_process_1 = require$$1$6;
+	const AppUpdater_1 = requireAppUpdater();
+	let BaseUpdater$1 = class BaseUpdater extends AppUpdater_1.AppUpdater {
+	    constructor(options, app) {
+	        super(options, app);
+	        this.quitAndInstallCalled = false;
+	        this.quitHandlerAdded = false;
+	    }
+	    quitAndInstall(isSilent = false, isForceRunAfter = false) {
+	        this._logger.info(`Install on explicit quitAndInstall`);
+	        // If NOT in silent mode use `autoRunAppAfterInstall` to determine whether to force run the app
+	        const isInstalled = this.install(isSilent, isSilent ? isForceRunAfter : this.autoRunAppAfterInstall);
+	        if (isInstalled) {
+	            setImmediate(() => {
+	                // this event is normally emitted when calling quitAndInstall, this emulates that
+	                require$$1$5.autoUpdater.emit("before-quit-for-update");
+	                this.app.quit();
+	            });
+	        }
+	        else {
+	            this.quitAndInstallCalled = false;
+	        }
+	    }
+	    executeDownload(taskOptions) {
+	        return super.executeDownload({
+	            ...taskOptions,
+	            done: event => {
+	                this.dispatchUpdateDownloaded(event);
+	                this.addQuitHandler();
+	                return Promise.resolve();
+	            },
+	        });
+	    }
+	    // must be sync (because quit even handler is not async)
+	    install(isSilent = false, isForceRunAfter = false) {
+	        if (this.quitAndInstallCalled) {
+	            this._logger.warn("install call ignored: quitAndInstallCalled is set to true");
+	            return false;
+	        }
+	        const downloadedUpdateHelper = this.downloadedUpdateHelper;
+	        // Get the installer path, ensuring spaces are escaped on Linux
+	        // 1. Check if downloadedUpdateHelper is not null
+	        // 2. Check if downloadedUpdateHelper.file is not null
+	        // 3. If both checks pass:
+	        //    a. If the platform is Linux, replace spaces with '\ ' for shell compatibility
+	        //    b. If the platform is not Linux, use the original path
+	        // 4. If any check fails, set installerPath to null
+	        const installerPath = downloadedUpdateHelper && downloadedUpdateHelper.file ? (process.platform === "linux" ? downloadedUpdateHelper.file.replace(/ /g, "\\ ") : downloadedUpdateHelper.file) : null;
+	        const downloadedFileInfo = downloadedUpdateHelper == null ? null : downloadedUpdateHelper.downloadedFileInfo;
+	        if (installerPath == null || downloadedFileInfo == null) {
+	            this.dispatchError(new Error("No valid update available, can't quit and install"));
+	            return false;
+	        }
+	        // prevent calling several times
+	        this.quitAndInstallCalled = true;
+	        try {
+	            this._logger.info(`Install: isSilent: ${isSilent}, isForceRunAfter: ${isForceRunAfter}`);
+	            return this.doInstall({
+	                installerPath,
+	                isSilent,
+	                isForceRunAfter,
+	                isAdminRightsRequired: downloadedFileInfo.isAdminRightsRequired,
+	            });
+	        }
+	        catch (e) {
+	            this.dispatchError(e);
+	            return false;
+	        }
+	    }
+	    addQuitHandler() {
+	        if (this.quitHandlerAdded || !this.autoInstallOnAppQuit) {
+	            return;
+	        }
+	        this.quitHandlerAdded = true;
+	        this.app.onQuit(exitCode => {
+	            if (this.quitAndInstallCalled) {
+	                this._logger.info("Update installer has already been triggered. Quitting application.");
+	                return;
+	            }
+	            if (!this.autoInstallOnAppQuit) {
+	                this._logger.info("Update will not be installed on quit because autoInstallOnAppQuit is set to false.");
+	                return;
+	            }
+	            if (exitCode !== 0) {
+	                this._logger.info(`Update will be not installed on quit because application is quitting with exit code ${exitCode}`);
+	                return;
+	            }
+	            this._logger.info("Auto install update on quit");
+	            this.install(true, false);
+	        });
+	    }
+	    wrapSudo() {
+	        const { name } = this.app;
+	        const installComment = `"${name} would like to update"`;
+	        const sudo = this.spawnSyncLog("which gksudo || which kdesudo || which pkexec || which beesu");
+	        const command = [sudo];
+	        if (/kdesudo/i.test(sudo)) {
+	            command.push("--comment", installComment);
+	            command.push("-c");
+	        }
+	        else if (/gksudo/i.test(sudo)) {
+	            command.push("--message", installComment);
+	        }
+	        else if (/pkexec/i.test(sudo)) {
+	            command.push("--disable-internal-agent");
+	        }
+	        return command.join(" ");
+	    }
+	    spawnSyncLog(cmd, args = [], env = {}) {
+	        this._logger.info(`Executing: ${cmd} with args: ${args}`);
+	        const response = (0, child_process_1.spawnSync)(cmd, args, {
+	            env: { ...process.env, ...env },
+	            encoding: "utf-8",
+	            shell: true,
+	        });
+	        return response.stdout.trim();
+	    }
+	    /**
+	     * This handles both node 8 and node 10 way of emitting error when spawning a process
+	     *   - node 8: Throws the error
+	     *   - node 10: Emit the error(Need to listen with on)
+	     */
+	    // https://github.com/electron-userland/electron-builder/issues/1129
+	    // Node 8 sends errors: https://nodejs.org/dist/latest-v8.x/docs/api/errors.html#errors_common_system_errors
+	    async spawnLog(cmd, args = [], env = undefined, stdio = "ignore") {
+	        this._logger.info(`Executing: ${cmd} with args: ${args}`);
+	        return new Promise((resolve, reject) => {
+	            try {
+	                const params = { stdio, env, detached: true };
+	                const p = (0, child_process_1.spawn)(cmd, args, params);
+	                p.on("error", error => {
+	                    reject(error);
+	                });
+	                p.unref();
+	                if (p.pid !== undefined) {
+	                    resolve(true);
+	                }
+	            }
+	            catch (error) {
+	                reject(error);
+	            }
+	        });
+	    }
+	};
+	BaseUpdater.BaseUpdater = BaseUpdater$1;
+	
+	return BaseUpdater;
+}
+
+var AppImageUpdater = {};
+
+var FileWithEmbeddedBlockMapDifferentialDownloader$1 = {};
+
 Object.defineProperty(FileWithEmbeddedBlockMapDifferentialDownloader$1, "__esModule", { value: true });
 FileWithEmbeddedBlockMapDifferentialDownloader$1.FileWithEmbeddedBlockMapDifferentialDownloader = void 0;
 const fs_extra_1 = lib;
-const DifferentialDownloader_1$1 = DifferentialDownloader$1;
-const zlib_1 = require$$2;
-class FileWithEmbeddedBlockMapDifferentialDownloader extends DifferentialDownloader_1$1.DifferentialDownloader {
+const DifferentialDownloader_1 = DifferentialDownloader$1;
+const zlib_1 = require$$15;
+class FileWithEmbeddedBlockMapDifferentialDownloader extends DifferentialDownloader_1.DifferentialDownloader {
     async download() {
         const packageInfo = this.blockAwareFileInfo;
         const fileSize = packageInfo.size;
@@ -18598,7 +17666,7 @@ function requireAppImageUpdater () {
 	hasRequiredAppImageUpdater = 1;
 	Object.defineProperty(AppImageUpdater, "__esModule", { value: true });
 	AppImageUpdater.AppImageUpdater = void 0;
-	const builder_util_runtime_1 = requireOut();
+	const builder_util_runtime_1 = out;
 	const child_process_1 = require$$1$6;
 	const fs_extra_1 = lib;
 	const fs_1 = require$$1$2;
@@ -18702,7 +17770,7 @@ function requireAppImageUpdater () {
 	    }
 	};
 	AppImageUpdater.AppImageUpdater = AppImageUpdater$1;
-
+	
 	return AppImageUpdater;
 }
 
@@ -18751,7 +17819,7 @@ function requireDebUpdater () {
 	    }
 	};
 	DebUpdater.DebUpdater = DebUpdater$1;
-
+	
 	return DebUpdater;
 }
 
@@ -18796,27 +17864,10 @@ function requireRpmUpdater () {
 	        let cmd;
 	        if (!packageManager) {
 	            const packageManager = this.spawnSyncLog("which dnf || which yum");
-	            cmd = [packageManager, "-y", "remove", `'${this.app.name}'`, ";", packageManager, "-y", "install", upgradePath];
+	            cmd = [packageManager, "-y", "install", upgradePath];
 	        }
 	        else {
-	            cmd = [
-	                packageManager,
-	                "remove",
-	                "-y",
-	                `'${this.app.name}'`,
-	                ";",
-	                packageManager,
-	                "clean",
-	                "--all",
-	                ";",
-	                packageManager,
-	                "--no-refresh",
-	                "install",
-	                "--allow-unsigned-rpm",
-	                "-y",
-	                "-f",
-	                upgradePath,
-	            ];
+	            cmd = [packageManager, "--no-refresh", "install", "--allow-unsigned-rpm", "-y", "-f", upgradePath];
 	        }
 	        this.spawnSyncLog(sudo, [`${wrapper}/bin/bash`, "-c", `'${cmd.join(" ")}'${wrapper}`]);
 	        if (options.isForceRunAfter) {
@@ -18826,7 +17877,7 @@ function requireRpmUpdater () {
 	    }
 	};
 	RpmUpdater.RpmUpdater = RpmUpdater$1;
-
+	
 	return RpmUpdater;
 }
 
@@ -18839,14 +17890,15 @@ function requireMacUpdater () {
 	hasRequiredMacUpdater = 1;
 	Object.defineProperty(MacUpdater, "__esModule", { value: true });
 	MacUpdater.MacUpdater = void 0;
-	const builder_util_runtime_1 = requireOut();
+	const builder_util_runtime_1 = out;
 	const fs_extra_1 = lib;
 	const fs_1 = require$$1$2;
-	const http_1 = require$$3;
+	const path = require$$1$4;
+	const http_1 = require$$4$1;
 	const AppUpdater_1 = requireAppUpdater();
 	const Provider_1 = Provider$1;
 	const child_process_1 = require$$1$6;
-	const crypto_1 = require$$0$3;
+	const crypto_1 = require$$0$2;
 	let MacUpdater$1 = class MacUpdater extends AppUpdater_1.AppUpdater {
 	    constructor(options, app) {
 	        super(options, app);
@@ -18858,11 +17910,22 @@ function requireMacUpdater () {
 	        });
 	        this.nativeUpdater.on("update-downloaded", () => {
 	            this.squirrelDownloadedUpdate = true;
+	            this.debug("nativeUpdater.update-downloaded");
 	        });
 	    }
 	    debug(message) {
 	        if (this._logger.debug != null) {
 	            this._logger.debug(message);
+	        }
+	    }
+	    closeServerIfExists() {
+	        if (this.server) {
+	            this.debug("Closing proxy server");
+	            this.server.close(err => {
+	                if (err) {
+	                    this.debug("proxy server wasn't already open, probably attempted closing again as a safety check before quit");
+	                }
+	            });
 	        }
 	    }
 	    async doDownloadUpdate(downloadUpdateOptions) {
@@ -18904,24 +17967,49 @@ function requireMacUpdater () {
 	        if (zipFileInfo == null) {
 	            throw (0, builder_util_runtime_1.newError)(`ZIP file not provided: ${(0, builder_util_runtime_1.safeStringifyJson)(files)}`, "ERR_UPDATER_ZIP_FILE_NOT_FOUND");
 	        }
+	        const provider = downloadUpdateOptions.updateInfoAndProvider.provider;
+	        const CURRENT_MAC_APP_ZIP_FILE_NAME = "update.zip";
+	        let cachedUpdateFile = "";
 	        return this.executeDownload({
 	            fileExtension: "zip",
 	            fileInfo: zipFileInfo,
 	            downloadUpdateOptions,
-	            task: (destinationFile, downloadOptions) => {
-	                return this.httpExecutor.download(zipFileInfo.url, destinationFile, downloadOptions);
+	            task: async (destinationFile, downloadOptions) => {
+	                cachedUpdateFile = path.join(this.downloadedUpdateHelper.cacheDir, CURRENT_MAC_APP_ZIP_FILE_NAME);
+	                const canDifferentialDownload = () => {
+	                    if (!(0, fs_extra_1.pathExistsSync)(cachedUpdateFile)) {
+	                        log.info("Unable to locate previous update.zip for differential download (is this first install?), falling back to full download");
+	                        return false;
+	                    }
+	                    return !downloadUpdateOptions.disableDifferentialDownload;
+	                };
+	                let differentialDownloadFailed = true;
+	                if (canDifferentialDownload()) {
+	                    differentialDownloadFailed = await this.differentialDownloadInstaller(zipFileInfo, downloadUpdateOptions, destinationFile, provider, CURRENT_MAC_APP_ZIP_FILE_NAME);
+	                }
+	                if (differentialDownloadFailed) {
+	                    await this.httpExecutor.download(zipFileInfo.url, destinationFile, downloadOptions);
+	                }
 	            },
-	            done: event => this.updateDownloaded(zipFileInfo, event),
+	            done: event => {
+	                try {
+	                    (0, fs_1.copyFileSync)(event.downloadedFile, cachedUpdateFile);
+	                }
+	                catch (error) {
+	                    this._logger.error(`Unable to copy file for caching: ${error.message}`);
+	                }
+	                return this.updateDownloaded(zipFileInfo, event);
+	            },
 	        });
 	    }
 	    async updateDownloaded(zipFileInfo, event) {
-	        var _a, _b;
+	        var _a;
 	        const downloadedFile = event.downloadedFile;
 	        const updateFileSize = (_a = zipFileInfo.info.size) !== null && _a !== void 0 ? _a : (await (0, fs_extra_1.stat)(downloadedFile)).size;
 	        const log = this._logger;
 	        const logContext = `fileToProxy=${zipFileInfo.url.href}`;
+	        this.closeServerIfExists();
 	        this.debug(`Creating proxy server for native Squirrel.Mac (${logContext})`);
-	        (_b = this.server) === null || _b === void 0 ? void 0 : _b.close();
 	        this.server = (0, http_1.createServer)();
 	        this.debug(`Proxy server for native Squirrel.Mac is created (${logContext})`);
 	        this.server.on("close", () => {
@@ -19024,18 +18112,16 @@ function requireMacUpdater () {
 	        });
 	    }
 	    quitAndInstall() {
-	        var _a;
 	        if (this.squirrelDownloadedUpdate) {
 	            // update already fetched by Squirrel, it's ready to install
 	            this.nativeUpdater.quitAndInstall();
-	            (_a = this.server) === null || _a === void 0 ? void 0 : _a.close();
+	            this.closeServerIfExists();
 	        }
 	        else {
 	            // Quit and install as soon as Squirrel get the update
 	            this.nativeUpdater.on("update-downloaded", () => {
-	                var _a;
 	                this.nativeUpdater.quitAndInstall();
-	                (_a = this.server) === null || _a === void 0 ? void 0 : _a.close();
+	                this.closeServerIfExists();
 	            });
 	            if (!this.autoInstallOnAppQuit) {
 	                /**
@@ -19048,31 +18134,20 @@ function requireMacUpdater () {
 	    }
 	};
 	MacUpdater.MacUpdater = MacUpdater$1;
-
+	
 	return MacUpdater;
 }
 
 var NsisUpdater = {};
 
-var GenericDifferentialDownloader$1 = {};
-
-Object.defineProperty(GenericDifferentialDownloader$1, "__esModule", { value: true });
-GenericDifferentialDownloader$1.GenericDifferentialDownloader = void 0;
-const DifferentialDownloader_1 = DifferentialDownloader$1;
-class GenericDifferentialDownloader extends DifferentialDownloader_1.DifferentialDownloader {
-    download(oldBlockMap, newBlockMap) {
-        return this.doDownload(oldBlockMap, newBlockMap);
-    }
-}
-GenericDifferentialDownloader$1.GenericDifferentialDownloader = GenericDifferentialDownloader;
-
 var windowsExecutableCodeSignatureVerifier = {};
 
 Object.defineProperty(windowsExecutableCodeSignatureVerifier, "__esModule", { value: true });
-windowsExecutableCodeSignatureVerifier.verifySignature = void 0;
-const builder_util_runtime_1 = requireOut();
+windowsExecutableCodeSignatureVerifier.verifySignature = verifySignature;
+const builder_util_runtime_1 = out;
 const child_process_1 = require$$1$6;
-const os = require$$0$1;
+const os = require$$2;
+const path = require$$1$4;
 // $certificateInfo = (Get-AuthenticodeSignature 'xxx\yyy.exe'
 // | where {$_.Status.Equals([System.Management.Automation.SignatureStatus]::Valid) -and $_.SignerCertificate.Subject.Contains("CN=siemens.com")})
 // | Out-String ; if ($certificateInfo) { exit 0 } else { exit 1 }
@@ -19097,12 +18172,17 @@ function verifySignature(publisherNames, unescapedTempUpdateFile, logger) {
         // guaranteed that the path will not contain any illegal characters like <>:"/\|?*
         // https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file
         const tempUpdateFile = unescapedTempUpdateFile.replace(/'/g, "''");
+        logger.info(`Verifying signature ${tempUpdateFile}`);
         // https://github.com/electron-userland/electron-builder/issues/2421
         // https://github.com/electron-userland/electron-builder/issues/2535
-        (0, child_process_1.execFile)("chcp 65001 >NUL & powershell.exe", ["-NoProfile", "-NonInteractive", "-InputFormat", "None", "-Command", `"Get-AuthenticodeSignature -LiteralPath '${tempUpdateFile}' | ConvertTo-Json -Compress"`], {
+        // Resetting PSModulePath is necessary https://github.com/electron-userland/electron-builder/issues/7127
+        // semicolon wont terminate the set command and run chcp thus leading to verification errors on certificats with special chars like german umlauts, so rather
+        //   join commands using & https://github.com/electron-userland/electron-builder/issues/8162
+        (0, child_process_1.execFile)(`set "PSModulePath=" & chcp 65001 >NUL & powershell.exe`, ["-NoProfile", "-NonInteractive", "-InputFormat", "None", "-Command", `"Get-AuthenticodeSignature -LiteralPath '${tempUpdateFile}' | ConvertTo-Json -Compress"`], {
             shell: true,
             timeout: 20 * 1000,
         }, (error, stdout, stderr) => {
+            var _a;
             try {
                 if (error != null || stderr) {
                     handleError(logger, error, stderr, reject);
@@ -19111,6 +18191,19 @@ function verifySignature(publisherNames, unescapedTempUpdateFile, logger) {
                 }
                 const data = parseOut(stdout);
                 if (data.Status === 0) {
+                    try {
+                        const normlaizedUpdateFilePath = path.normalize(data.Path);
+                        const normalizedTempUpdateFile = path.normalize(unescapedTempUpdateFile);
+                        logger.info(`LiteralPath: ${normlaizedUpdateFilePath}. Update Path: ${normalizedTempUpdateFile}`);
+                        if (normlaizedUpdateFilePath !== normalizedTempUpdateFile) {
+                            handleError(logger, new Error(`LiteralPath of ${normlaizedUpdateFilePath} is different than ${normalizedTempUpdateFile}`), stderr, reject);
+                            resolve(null);
+                            return;
+                        }
+                    }
+                    catch (error) {
+                        logger.warn(`Unable to verify LiteralPath of update asset due to missing data.Path. Skipping this step of validation. Message: ${(_a = error.message) !== null && _a !== void 0 ? _a : error.stack}`);
+                    }
                     const subject = (0, builder_util_runtime_1.parseDn)(data.SignerCertificate.Subject);
                     let match = false;
                     for (const name of publisherNames) {
@@ -19144,7 +18237,6 @@ function verifySignature(publisherNames, unescapedTempUpdateFile, logger) {
         });
     });
 }
-windowsExecutableCodeSignatureVerifier.verifySignature = verifySignature;
 function parseOut(out) {
     const data = JSON.parse(out);
     delete data.PrivateKey;
@@ -19159,7 +18251,6 @@ function parseOut(out) {
         // duplicates data.SignerCertificate (contains RawData)
         delete signerCertificate.SubjectName;
     }
-    delete data.Path;
     return data;
 }
 function handleError(logger, error, stderr, reject) {
@@ -19193,18 +18284,15 @@ function requireNsisUpdater () {
 	hasRequiredNsisUpdater = 1;
 	Object.defineProperty(NsisUpdater, "__esModule", { value: true });
 	NsisUpdater.NsisUpdater = void 0;
-	const builder_util_runtime_1 = requireOut();
+	const builder_util_runtime_1 = out;
 	const path = require$$1$4;
 	const BaseUpdater_1 = requireBaseUpdater();
 	const FileWithEmbeddedBlockMapDifferentialDownloader_1 = FileWithEmbeddedBlockMapDifferentialDownloader$1;
-	const GenericDifferentialDownloader_1 = GenericDifferentialDownloader$1;
 	const main_1 = requireMain();
-	const util_1 = util;
 	const Provider_1 = Provider$1;
 	const fs_extra_1 = lib;
 	const windowsExecutableCodeSignatureVerifier_1 = windowsExecutableCodeSignatureVerifier;
 	const url_1 = require$$4;
-	const zlib_1 = require$$2;
 	let NsisUpdater$1 = class NsisUpdater extends BaseUpdater_1.BaseUpdater {
 	    constructor(options, app) {
 	        super(options, app);
@@ -19239,7 +18327,9 @@ function requireNsisUpdater () {
 	                if (!isWebInstaller && !downloadUpdateOptions.disableWebInstaller) {
 	                    this._logger.warn("disableWebInstaller is set to false, you should set it to true if you do not plan on using a web installer. This will default to true in a future version.");
 	                }
-	                if (isWebInstaller || (await this.differentialDownloadInstaller(fileInfo, downloadUpdateOptions, destinationFile, provider))) {
+	                if (isWebInstaller ||
+	                    downloadUpdateOptions.disableDifferentialDownload ||
+	                    (await this.differentialDownloadInstaller(fileInfo, downloadUpdateOptions, destinationFile, provider, builder_util_runtime_1.CURRENT_APP_INSTALLER_FILE_NAME))) {
 	                    await this.httpExecutor.download(fileInfo.url, destinationFile, downloadOptions);
 	                }
 	                const signatureVerificationStatus = await this.verifySignature(destinationFile);
@@ -19335,53 +18425,6 @@ function requireNsisUpdater () {
 	        });
 	        return true;
 	    }
-	    async differentialDownloadInstaller(fileInfo, downloadUpdateOptions, installerPath, provider) {
-	        try {
-	            if (this._testOnlyOptions != null && !this._testOnlyOptions.isUseDifferentialDownload) {
-	                return true;
-	            }
-	            const blockmapFileUrls = (0, util_1.blockmapFiles)(fileInfo.url, this.app.version, downloadUpdateOptions.updateInfoAndProvider.info.version);
-	            this._logger.info(`Download block maps (old: "${blockmapFileUrls[0]}", new: ${blockmapFileUrls[1]})`);
-	            const downloadBlockMap = async (url) => {
-	                const data = await this.httpExecutor.downloadToBuffer(url, {
-	                    headers: downloadUpdateOptions.requestHeaders,
-	                    cancellationToken: downloadUpdateOptions.cancellationToken,
-	                });
-	                if (data == null || data.length === 0) {
-	                    throw new Error(`Blockmap "${url.href}" is empty`);
-	                }
-	                try {
-	                    return JSON.parse((0, zlib_1.gunzipSync)(data).toString());
-	                }
-	                catch (e) {
-	                    throw new Error(`Cannot parse blockmap "${url.href}", error: ${e}`);
-	                }
-	            };
-	            const downloadOptions = {
-	                newUrl: fileInfo.url,
-	                oldFile: path.join(this.downloadedUpdateHelper.cacheDir, builder_util_runtime_1.CURRENT_APP_INSTALLER_FILE_NAME),
-	                logger: this._logger,
-	                newFile: installerPath,
-	                isUseMultipleRangeRequest: provider.isUseMultipleRangeRequest,
-	                requestHeaders: downloadUpdateOptions.requestHeaders,
-	                cancellationToken: downloadUpdateOptions.cancellationToken,
-	            };
-	            if (this.listenerCount(main_1.DOWNLOAD_PROGRESS) > 0) {
-	                downloadOptions.onProgress = it => this.emit(main_1.DOWNLOAD_PROGRESS, it);
-	            }
-	            const blockMapDataList = await Promise.all(blockmapFileUrls.map(u => downloadBlockMap(u)));
-	            await new GenericDifferentialDownloader_1.GenericDifferentialDownloader(fileInfo.info, this.httpExecutor, downloadOptions).download(blockMapDataList[0], blockMapDataList[1]);
-	            return false;
-	        }
-	        catch (e) {
-	            this._logger.error(`Cannot download differentially, fallback to full download: ${e.stack || e}`);
-	            if (this._testOnlyOptions != null) {
-	                // test mode
-	                throw e;
-	            }
-	            return true;
-	        }
-	    }
 	    async differentialDownloadWebPackage(downloadUpdateOptions, packageInfo, packagePath, provider) {
 	        if (packageInfo.blockMapSize == null) {
 	            return true;
@@ -19410,7 +18453,7 @@ function requireNsisUpdater () {
 	    }
 	};
 	NsisUpdater.NsisUpdater = NsisUpdater$1;
-
+	
 	return NsisUpdater;
 }
 
@@ -19421,11 +18464,13 @@ function requireMain () {
 	hasRequiredMain = 1;
 	(function (exports) {
 		Object.defineProperty(exports, "__esModule", { value: true });
-		exports.UpdaterSignal = exports.UPDATE_DOWNLOADED = exports.DOWNLOAD_PROGRESS = exports.NsisUpdater = exports.MacUpdater = exports.RpmUpdater = exports.DebUpdater = exports.AppImageUpdater = exports.Provider = exports.CancellationToken = exports.NoOpLogger = exports.AppUpdater = void 0;
-		const builder_util_runtime_1 = requireOut();
+		exports.UpdaterSignal = exports.UPDATE_DOWNLOADED = exports.DOWNLOAD_PROGRESS = exports.NsisUpdater = exports.MacUpdater = exports.RpmUpdater = exports.DebUpdater = exports.AppImageUpdater = exports.Provider = exports.CancellationToken = exports.NoOpLogger = exports.AppUpdater = exports.BaseUpdater = void 0;
+		const builder_util_runtime_1 = out;
 		Object.defineProperty(exports, "CancellationToken", { enumerable: true, get: function () { return builder_util_runtime_1.CancellationToken; } });
 		const fs_extra_1 = lib;
 		const path = require$$1$4;
+		var BaseUpdater_1 = requireBaseUpdater();
+		Object.defineProperty(exports, "BaseUpdater", { enumerable: true, get: function () { return BaseUpdater_1.BaseUpdater; } });
 		var AppUpdater_1 = requireAppUpdater();
 		Object.defineProperty(exports, "AppUpdater", { enumerable: true, get: function () { return AppUpdater_1.AppUpdater; } });
 		Object.defineProperty(exports, "NoOpLogger", { enumerable: true, get: function () { return AppUpdater_1.NoOpLogger; } });
@@ -19512,8 +18557,8 @@ function requireMain () {
 		        emitter.on(event, handler);
 		    }
 		}
-
-} (main$2));
+		
+	} (main$2));
 	return main$2;
 }
 

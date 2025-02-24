@@ -5,24 +5,23 @@ import {
 	serializeExcludedDates,
 	serializeRepeatRule,
 	serializeTrigger,
-} from "../../../src/calendar/export/CalendarExporter.js"
+} from "../../../src/calendar-app/calendar/export/CalendarExporter.js"
 import {
 	CalendarEvent,
 	CalendarEventAttendeeTypeRef,
 	CalendarEventTypeRef,
 	CalendarGroupRootTypeRef,
 	EncryptedMailAddressTypeRef,
-} from "../../../src/api/entities/tutanota/TypeRefs.js"
+} from "../../../src/common/api/entities/tutanota/TypeRefs.js"
 import { DateTime } from "luxon"
-import { AlarmInfo, AlarmInfoTypeRef, DateWrapperTypeRef, RepeatRuleTypeRef, UserAlarmInfoTypeRef } from "../../../src/api/entities/sys/TypeRefs.js"
-import { CalendarAttendeeStatus, EndType, RepeatPeriod } from "../../../src/api/common/TutanotaConstants.js"
-import { getAllDayDateUTC } from "../../../src/api/common/utils/CommonCalendarUtils.js"
-import { getAllDayDateUTCFromZone } from "../../../src/calendar/date/CalendarUtils.js"
-import { EventImportRejectionReason, sortOutParsedEvents } from "../../../src/calendar/export/CalendarImporterDialog.js"
+import { AlarmInfo, AlarmInfoTypeRef, DateWrapperTypeRef, RepeatRuleTypeRef, UserAlarmInfoTypeRef } from "../../../src/common/api/entities/sys/TypeRefs.js"
+import { CalendarAttendeeStatus, EndType, RepeatPeriod } from "../../../src/common/api/common/TutanotaConstants.js"
+import { getAllDayDateUTC } from "../../../src/common/api/common/utils/CommonCalendarUtils.js"
 import { getDateInZone } from "./CalendarTestUtils.js"
 import { Require } from "@tutao/tutanota-utils"
-import { parseCalendarStringData } from "../../../src/calendar/export/CalendarImporter.js"
 import { createTestEntity } from "../TestUtils.js"
+import { getAllDayDateUTCFromZone } from "../../../src/common/calendar/date/CalendarUtils.js"
+import { EventImportRejectionReason, parseCalendarStringData, sortOutParsedEvents } from "../../../src/common/calendar/import/ImportExportUtils.js"
 
 const zone = "Europe/Berlin"
 const now = new Date("2019-08-13T14:01:00.630Z")
@@ -1385,14 +1384,16 @@ END:VCALENDAR`
 	})
 	o.spec("sortOutParsedEvents", function () {
 		o("repeated progenitors are skipped", function () {
-			const progenitor1 = createTestEntity(CalendarEventTypeRef, { uid: "hello", startTime: getDateInZone("2023-01-02T13:00") }) as Require<
-				"uid",
-				CalendarEvent
-			>
-			const progenitor2 = createTestEntity(CalendarEventTypeRef, { uid: "hello", startTime: getDateInZone("2023-01-01T13:00") }) as Require<
-				"uid",
-				CalendarEvent
-			>
+			const progenitor1 = createTestEntity(CalendarEventTypeRef, {
+				uid: "hello",
+				startTime: getDateInZone("2023-01-02T13:00"),
+				endTime: getDateInZone("2023-01-02T13:05"),
+			}) as Require<"uid", CalendarEvent>
+			const progenitor2 = createTestEntity(CalendarEventTypeRef, {
+				uid: "hello",
+				startTime: getDateInZone("2023-01-01T13:00"),
+				endTime: getDateInZone("2023-01-01T13:05"),
+			}) as Require<"uid", CalendarEvent>
 			const { rejectedEvents, eventsForCreation } = sortOutParsedEvents(
 				[
 					{ event: progenitor1, alarms: [] },
@@ -1412,11 +1413,13 @@ END:VCALENDAR`
 			const progenitor = createTestEntity(CalendarEventTypeRef, {
 				uid: "hello",
 				startTime: getDateInZone("2023-01-02T13:00"),
+				endTime: getDateInZone("2023-01-02T13:05"),
 				repeatRule: createTestEntity(RepeatRuleTypeRef),
 			}) as Require<"uid", CalendarEvent>
 			const altered = createTestEntity(CalendarEventTypeRef, {
 				uid: "hello",
 				startTime: getDateInZone("2023-01-02T14:00"),
+				endTime: getDateInZone("2023-01-02T14:05"),
 				recurrenceId: getDateInZone("2023-01-02T13:00"),
 			}) as Require<"uid", CalendarEvent>
 			const { rejectedEvents, eventsForCreation } = sortOutParsedEvents(

@@ -1,5 +1,5 @@
 import o from "@tutao/otest"
-import { MailViewerViewModel } from "../../../../src/mail/view/MailViewerViewModel.js"
+import { MailViewerViewModel } from "../../../../src/mail-app/mail/view/MailViewerViewModel.js"
 import {
 	HeaderTypeRef,
 	Mail,
@@ -8,23 +8,25 @@ import {
 	MailDetailsTypeRef,
 	MailTypeRef,
 	RecipientsTypeRef,
-} from "../../../../src/api/entities/tutanota/TypeRefs.js"
+} from "../../../../src/common/api/entities/tutanota/TypeRefs.js"
 import { matchers, object, verify, when } from "testdouble"
-import { EntityClient } from "../../../../src/api/common/EntityClient.js"
-import { MailboxDetail, MailModel } from "../../../../src/mail/model/MailModel.js"
-import { ContactModel } from "../../../../src/contacts/model/ContactModel.js"
-import { ConfigurationDatabase } from "../../../../src/api/worker/facades/lazy/ConfigurationDatabase.js"
-import { LoginController } from "../../../../src/api/main/LoginController.js"
-import { EventController } from "../../../../src/api/main/EventController.js"
-import { WorkerFacade } from "../../../../src/api/worker/facades/WorkerFacade.js"
-import { SearchModel } from "../../../../src/search/model/SearchModel.js"
-import { MailFacade } from "../../../../src/api/worker/facades/lazy/MailFacade.js"
-import { SendMailModel } from "../../../../src/mail/editor/SendMailModel.js"
-import { FileController } from "../../../../src/file/FileController.js"
+import { EntityClient } from "../../../../src/common/api/common/EntityClient.js"
+import { ConfigurationDatabase } from "../../../../src/common/api/worker/facades/lazy/ConfigurationDatabase.js"
+import { LoginController } from "../../../../src/common/api/main/LoginController.js"
+import { EventController } from "../../../../src/common/api/main/EventController.js"
+import { WorkerFacade } from "../../../../src/common/api/worker/facades/WorkerFacade.js"
+import { SearchModel } from "../../../../src/mail-app/search/model/SearchModel.js"
+import { MailFacade } from "../../../../src/common/api/worker/facades/lazy/MailFacade.js"
+import { FileController } from "../../../../src/common/file/FileController.js"
 import { createTestEntity } from "../../TestUtils.js"
-import { MailState } from "../../../../src/api/common/TutanotaConstants.js"
-import { GroupInfoTypeRef } from "../../../../src/api/entities/sys/TypeRefs.js"
-import { CryptoFacade } from "../../../../src/api/worker/crypto/CryptoFacade.js"
+import { MailState } from "../../../../src/common/api/common/TutanotaConstants.js"
+import { GroupInfoTypeRef } from "../../../../src/common/api/entities/sys/TypeRefs.js"
+import { CryptoFacade } from "../../../../src/common/api/worker/crypto/CryptoFacade.js"
+import { ContactImporter } from "../../../../src/mail-app/contacts/ContactImporter.js"
+import { MailboxDetail, MailboxModel } from "../../../../src/common/mailFunctionality/MailboxModel.js"
+import { ContactModel } from "../../../../src/common/contactsFunctionality/ContactModel.js"
+import { SendMailModel } from "../../../../src/common/mailFunctionality/SendMailModel.js"
+import { MailModel } from "../../../../src/mail-app/mail/model/MailModel.js"
 
 o.spec("MailViewerViewModel", function () {
 	let mail: Mail
@@ -32,6 +34,7 @@ o.spec("MailViewerViewModel", function () {
 	let entityClient: EntityClient
 
 	let mailModel: MailModel
+	let mailboxModel: MailboxModel
 	let contactModel: ContactModel
 	let configFacade: ConfigurationDatabase
 	let fileController: FileController
@@ -43,10 +46,12 @@ o.spec("MailViewerViewModel", function () {
 	let sendMailModel: SendMailModel
 	let sendMailModelFactory: (mailboxDetails: MailboxDetail) => Promise<SendMailModel> = () => Promise.resolve(sendMailModel)
 	let cryptoFacade: CryptoFacade
+	let contactImporter: ContactImporter
 
 	function makeViewModelWithHeaders(headers: string) {
 		entityClient = object()
 		mailModel = object()
+		mailboxModel = object()
 		contactModel = object()
 		configFacade = object()
 		fileController = object()
@@ -57,12 +62,14 @@ o.spec("MailViewerViewModel", function () {
 		searchModel = object()
 		mailFacade = object()
 		cryptoFacade = object()
+		contactImporter = object()
 		mail = prepareMailWithHeaders(mailFacade, headers)
 
 		return new MailViewerViewModel(
 			mail,
 			showFolder,
 			entityClient,
+			mailboxModel,
 			mailModel,
 			contactModel,
 			configFacade,
@@ -74,6 +81,7 @@ o.spec("MailViewerViewModel", function () {
 			searchModel,
 			mailFacade,
 			cryptoFacade,
+			async () => contactImporter,
 		)
 	}
 
@@ -87,7 +95,6 @@ o.spec("MailViewerViewModel", function () {
 		const mail = createTestEntity(MailTypeRef, {
 			_id: ["mailListId", "mailId"],
 			listUnsubscribe: true,
-			toRecipients,
 			mailDetails: ["mailDetailsListId", "mailDetailsId"],
 			state: MailState.RECEIVED,
 			sender: createTestEntity(MailAddressTypeRef, {

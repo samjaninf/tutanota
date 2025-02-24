@@ -1,20 +1,18 @@
 import o from "@tutao/otest"
-import { GroupType } from "../../src/api/common/TutanotaConstants.js"
-import type { MailFolder } from "../../src/api/entities/tutanota/TypeRefs.js"
+import { GroupType } from "../../src/common/api/common/TutanotaConstants.js"
+import type { MailFolder } from "../../src/common/api/entities/tutanota/TypeRefs.js"
 import {
 	ContactAddressTypeRef,
 	ContactListTypeRef,
 	ContactTypeRef,
-	createContact,
-	createContactAddress,
 	MailBoxTypeRef,
 	MailFolderTypeRef,
-	MailTypeRef,
-} from "../../src/api/entities/tutanota/TypeRefs.js"
+	MailSetEntryTypeRef,
+} from "../../src/common/api/entities/tutanota/TypeRefs.js"
 import { neverNull } from "@tutao/tutanota-utils"
-import { initLocator, locator } from "../../src/api/worker/WorkerLocator.js"
+import { initLocator, locator } from "../../src/mail-app/workerUtils/worker/WorkerLocator.js"
 import { browserDataStub, createTestEntity } from "./TestUtils.js"
-import { SessionType } from "../../src/api/common/SessionType.js"
+import { SessionType } from "../../src/common/api/common/SessionType.js"
 
 function loadFolders(folderListId: Id): Promise<MailFolder[]> {
 	return locator.cachingEntityClient.loadAll(MailFolderTypeRef, folderListId)
@@ -34,13 +32,12 @@ o.spec("integration test", function () {
 	let mailbox = null
 	o("login, read mails, update contact", async function () {
 		env.staticUrl = "http://localhost:9000"
-		env.versionNumber
 		initLocator(null as any, browserDataStub)
 		o.timeout(20000)
 		await locator.login.createSession("map-free@tutanota.de", "map", "Linux node", SessionType.Temporary, null)
 		const folders = await loadMailboxSystemFolders()
-		const mails = await locator.cachingEntityClient.loadAll(MailTypeRef, folders[0].mails)
-		o(mails.length).equals(8)
+		const mailSetEntries = await locator.cachingEntityClient.loadAll(MailSetEntryTypeRef, folders[0].entries)
+		o(mailSetEntries.length).equals(8)
 		const contactList = await loadContactList()
 		// create new contact
 		let address = createTestEntity(ContactAddressTypeRef)
@@ -48,15 +45,12 @@ o.spec("integration test", function () {
 		address.address = "Entenhausen"
 		address.customTypeName = "0"
 		let contact = createTestEntity(ContactTypeRef)
-		contact._area = "0"
-		contact._owner = locator.user.getLoggedInUser()._id
 		contact._ownerGroup = locator.user.getGroupId(GroupType.Contact)
 		contact.title = "Dr."
 		contact.firstName = "Max"
 		contact.lastName = "Meier"
 		contact.comment = "what?"
 		contact.company = "WIW"
-		contact.autoTransmitPassword = "stop bugging me!"
 		contact.addresses = [address]
 		await locator.cachingEntityClient.setup(contactList.contacts, contact)
 		const contacts = await locator.cachingEntityClient.loadAll(ContactTypeRef, contactList.contacts)

@@ -1,8 +1,8 @@
 NSCameraUsageDescription = "Prenez une photo ou une vidéo pour l'ajouter en pièce jointe.";
 NSPhotoLibraryUsageDescription = "Ajoutez une image de votre bibliothèque en pièce jointe.";
 NSMicrophoneUsageDescription = "Utilisé lors de l'enregistrement de vidéo en tant que pièce jointe.";
-NSContactsUsageDescription = "Trouver le courriel du destinataire dans votre liste d'emails L'autre variation est de mettre à jour votre carnet d'e-mails.";
-NSRemindersUsageDescription = "Montrer les notifications quand de nouveaux mails arrivent.";
+NSContactsUsageDescription = "1. Trouvez l'adresse e-mail du destinataire dans les contacts.\n2. En option, synchronisez les contacts Tuta avec votre appareil.";
+NSRemindersUsageDescription = "Affiche une notification lors de l'arrivée d'un nouveau courriel.";
 TutaoShowCameraAction = "Appareil photo";
 TutaoChoosePhotosAction = "Photos";
 TutaoNoPermissionTitle = "Aucune permission";
@@ -12,3 +12,6 @@ TutaoSettingsAction = "Paramètres";
 TutaoCalendarAlarmTitle = "Rappel";
 TutaoScheduleAlarmError = "Impossible de définir une alarme. Veuillez mettre à jour l'application.";
 TutaoUnlockCredentialsAction = "Déverrouillage des données ";
+TutaoPushNewMail = "Nouveau message reçu.";
+TutaoDeleteAction = "Supprimer";
+TutaoMarkReadAction = "Marquer comme lu";

@@ -1,11 +1,14 @@
 import o from "@tutao/otest"
 
 import "./misc/ListModelTest.js"
+import "./misc/ListElementListModelTest.js"
 import "./api/worker/facades/LoginFacadeTest.js"
 import "./api/common/utils/LoggerTest.js"
 import "./api/common/utils/BirthdayUtilsTest.js"
 import "./api/worker/rest/EntityRestClientTest.js"
 import "./api/worker/crypto/CryptoFacadeTest.js"
+import "./api/worker/crypto/AsymmetricCryptoFacadeTest.js"
+import "./api/worker/crypto/InstanceMapperTest.js"
 import "./api/worker/crypto/OwnerEncSessionKeysUpdateQueueTest.js"
 import "./api/worker/crypto/CompatibilityTest.js"
 import "./api/common/error/RestErrorTest.js"
@@ -13,6 +16,7 @@ import "./api/common/error/TutanotaErrorTest.js"
 import "./api/worker/rest/EntityRestCacheTest.js"
 import "./api/worker/rest/EphemeralCacheStorageTest.js"
 import "./api/worker/EventBusClientTest.js"
+import "./api/worker/EventBusEventCoordinatorTest.js"
 import "./api/worker/search/IndexerTest.js"
 import "./api/worker/search/IndexerCoreTest.js"
 import "./api/worker/search/ContactIndexerTest.js"
@@ -24,10 +28,13 @@ import "./api/worker/search/SearchIndexEncodingTest.js"
 import "./serviceworker/SwTest.js"
 import "./api/worker/search/EventQueueTest.js"
 import "./api/worker/facades/MailFacadeTest.js"
+import "./api/worker/facades/GroupManagementFacadeTest.js"
 import "./api/worker/facades/PQMessageTest.js"
 import "./api/worker/facades/PQFacadeTest.js"
 import "./api/worker/facades/CalendarFacadeTest.js"
 import "./api/worker/facades/UserFacadeTest.js"
+import "./api/worker/facades/PublicKeyProviderTest.js"
+import "./api/worker/facades/KeyLoaderFacadeTest.js"
 import "./api/worker/SuspensionHandlerTest.js"
 import "./api/worker/facades/ConfigurationDbTest.js"
 import "./api/worker/CompressionTest.js"
@@ -80,6 +87,7 @@ import "./subscription/SubscriptionUtilsTest.js"
 import "./subscription/CreditCardViewModelTest.js"
 import "./mail/TemplateSearchFilterTest.js"
 import "./mail/KnowledgeBaseSearchFilterTest.js"
+import "./api/worker/facades/MailExportTokenFacadeTest.js"
 import "./mail/export/ExporterTest.js"
 import "./mail/export/BundlerTest.js"
 import "./api/common/utils/FileUtilsTest.js"
@@ -101,8 +109,6 @@ import "./calendar/EventDragHandlerTest.js"
 import "./calendar/CalendarGuiUtilsTest.js"
 import "./calendar/CalendarViewModelTest.js"
 import "./calendar/eventeditor/CalendarNotificationModelTest.js"
-import "./misc/credentials/NativeCredentialsEncryptionTest.js"
-import "./misc/credentials/CredentialsKeyProviderTest.js"
 import "./misc/webauthn/WebauthnClientTest.js"
 import "./translations/TranslationKeysTest.js"
 import "./misc/UsageTestModelTest.js"
@@ -112,6 +118,7 @@ import "./api/worker/rest/CustomCacheHandlerTest.js"
 import "./misc/RecipientsModelTest.js"
 import "./api/worker/facades/MailAddressFacadeTest.js"
 import "./mail/model/FolderSystemTest.js"
+import "./mail/model/MailListModelTest.js"
 import "./gui/ScopedRouterTest.js"
 import "./contacts/ContactListEditorTest.js"
 import "./login/PostLoginUtilsTest.js"
@@ -120,11 +127,23 @@ import "./api/worker/facades/RsaPqPerformanceTest.js"
 import "./api/worker/pdf/DeflaterTest.js"
 import "./api/worker/pdf/PdfWriterTest.js"
 import "./api/worker/pdf/PdfObjectTest.js"
+import "./api/worker/pdf/PdfDocumentTest.js"
 import "./api/worker/invoicegen/PdfInvoiceGeneratorTest.js"
+import "./api/worker/invoicegen/XRechnungInvoiceGeneratorTest.js"
+import "./subscription/SignupFormTest.js"
+import "./api/worker/facades/ContactFacadeTest.js"
+import "./api/worker/facades/KeyRotationFacadeTest.js"
+import "./api/worker/facades/KeyAuthenticationFacadeTest.js"
+import "./mail/view/ConversationViewModelTest.js"
+import "./mail/view/MailViewerViewModelTest.js"
+import "./api/worker/facades/KeyCacheTest.js"
+import "./misc/InAppRatingUtilsTest.js"
+import "./native/main/MailExportControllerTest.js"
+import "./api/worker/facades/MailExportFacadeTest.js"
 
 import * as td from "testdouble"
 import { random } from "@tutao/tutanota-crypto"
-import { Mode } from "../../src/api/common/Env.js"
+import { Mode } from "../../src/common/api/common/Env.js"
 
 export async function run({ integration, filter }: { integration?: boolean; filter?: string } = {}) {
 	await setupSuite({ integration })
@@ -136,7 +155,7 @@ export async function run({ integration, filter }: { integration?: boolean; filt
 }
 
 async function setupSuite({ integration }: { integration?: boolean }) {
-	const { WorkerImpl } = await import("../../src/api/worker/WorkerImpl.js")
+	const { WorkerImpl } = await import("../../src/mail-app/workerUtils/worker/WorkerImpl.js")
 	globalThis.testWorker = WorkerImpl
 
 	if (typeof process != "undefined") {
@@ -158,7 +177,6 @@ async function setupSuite({ integration }: { integration?: boolean }) {
 		await import("./desktop/ElectronUpdaterTest.js")
 		await import("./desktop/DesktopNotifierTest.js")
 		await import("./desktop/ApplicationWindowTest.js")
-		await import("./desktop/sse/DesktopSseClientTest.js")
 		await import("./desktop/sse/SecretStorageTest.js")
 		await import("./desktop/sse/DesktopAlarmStorageTest.js")
 		await import("./desktop/sse/DesktopAlarmSchedulerTest.js")
@@ -172,15 +190,20 @@ async function setupSuite({ integration }: { integration?: boolean }) {
 		await import("./desktop/DesktopKeyStoreFacadeTest.js")
 		await import("./desktop/config/ConfigFileTest.js")
 		await import("./desktop/db/OfflineDbFacadeTest.js")
-		await import("./desktop/credentials/DesktopCredentialsFacadeTest.js")
+		await import("./desktop/credentials/DesktopNativeCredentialsFacadeTest.js")
+		await import("./desktop/credentials/AppPassHandlerTest.js")
 		await import("./api/worker/offline/OfflineStorageMigratorTest.js")
 		await import("./api/worker/offline/OfflineStorageMigrationsTest.js")
 		await import("./api/worker/offline/OfflineStorageTest.js")
-		await import("./mail/view/ConversationViewModelTest.js")
-		await import("./mail/view/MailViewerViewModelTest.js")
 		await import("./desktop/config/DesktopConfigTest.js")
 		await import("./api/worker/rest/RestClientTest.js")
 		await import("./desktop/files/TempFsTest.js")
+		await import("./desktop/sse/SseClientTest.js")
+		await import("./desktop/sse/TutaSseFacadeTest.js")
+		await import("./desktop/sse/TutaNotificationHandlerTest.js")
+		await import("./desktop/credentials/KeychainEncryptionTest.js")
+		await import("./desktop/credentials/DesktopCredentialsStorageTest.js")
+		await import("./desktop/export/DesktopExportFacadeTest.js")
 	}
 
 	// testdouble complains about certain mocking related code smells, and also prints a warning whenever you replace a property on an object.

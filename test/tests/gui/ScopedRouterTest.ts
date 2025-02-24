@@ -1,5 +1,5 @@
-import o from "ospec"
-import { routeMatchesPrefix } from "../../../src/gui/ScopedRouter.js"
+import o from "@tutao/otest"
+import { routeMatchesPrefix } from "../../../src/common/gui/ScopedRouter.js"
 
 o.spec("ScopedRouter", function () {
 	o.spec("route matches prefix", function () {
@@ -25,6 +25,10 @@ o.spec("ScopedRouter", function () {
 
 		o("does not match empty", function () {
 			o(routeMatchesPrefix("contact", "/")).equals(false)
+		})
+
+		o("route with query matches prefix", function () {
+			o(routeMatchesPrefix("contact", "/contact?test=1")).equals(true)
 		})
 	})
 })

@@ -1,7 +1,7 @@
 NSCameraUsageDescription = "Направете снимка или видеоклип, за да ги добавите като прикачен файл.";
 NSPhotoLibraryUsageDescription = "Добавете снимка от библиотеката си като прикачен файл.";
 NSMicrophoneUsageDescription = "Използва се при запис на видео за прикачване.";
-NSContactsUsageDescription = "Добавете имейл адреса в контактите";
+NSContactsUsageDescription = "1. Намерете имейл адреса в контактите.\n2. По желание, синхронизирайте си Tuta контактите с вашето устройство.";
 NSRemindersUsageDescription = "Показва известие, когато пристигне ново писмо.";
 TutaoShowCameraAction = "Камера";
 TutaoChoosePhotosAction = "Снимки";
@@ -11,3 +11,7 @@ TutaoCancelAction = "Откажи";
 TutaoSettingsAction = "Настройки";
 TutaoCalendarAlarmTitle = "Напомняне";
 TutaoScheduleAlarmError = "Не можеше да се създаде аларма. Моля актуализирайте приложението.";
+TutaoUnlockCredentialsAction = "Отключване на данни за идентификация";
+TutaoPushNewMail = "Получено е нов имейл.";
+TutaoDeleteAction = "Изтрий";
+TutaoMarkReadAction = "Отбележи като прочетено";

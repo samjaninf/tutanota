@@ -4,6 +4,7 @@
  * Hey you! Don't import anything in this file, or all these declarations will cease to be global!
  */
 
+/* eslint-disable no-var */
 declare type NumberString = string
 declare type Dict = { [key: string]: string }
 
@@ -18,15 +19,6 @@ declare type NativeRequestType = "ipc" | "facade"
 
 /** Requests from native to web */
 declare type JsRequestType = "ipc"
-
-// see https://bitwiseshiftleft.github.io/sjcl/doc/symbols/sjcl.bitArray.html
-// type that is used by sjcl for any encryption/decryption operation
-// TODO these should be exported by tutanota-crypto
-declare type BitArray = number[]
-declare type Aes128Key = BitArray
-declare type Aes256Key = BitArray
-declare type SignedBytes = number[]
-declare type Base32 = string
 
 declare type EnvMode = "Browser" | "App" | "Test" | "Playground" | "Desktop" | "Admin"
 declare type PlatformId = "ios" | "android" | "darwin" | "linux" | "win32"
@@ -84,3 +76,13 @@ declare var env: {
 }
 
 type EventRedraw<T extends Event> = T & { redraw?: boolean }
+
+/**
+ * See Env.ts for explanation.
+ */
+declare var LOAD_ASSERTIONS: boolean
+
+/**
+ * Should be injected during build time. Only done for desktop
+ */
+declare const __NODE_GYP_better_sqlite3: string

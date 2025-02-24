@@ -1,0 +1,8 @@
+{
+	"name": "ContactCustomDateType",
+	"type": "typeref",
+	"location": {
+		"typescript": "../src/common/api/common/TutanotaConstants.js",
+		"kotlin": "de.tutao.tutashared.contacts.ContactCustomDateType"
+	}
+}

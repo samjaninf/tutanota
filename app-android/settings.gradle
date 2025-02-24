@@ -1,1 +1,10 @@
 include ':app'
+includeBuild("../tuta-sdk/android") {
+	name = "tutasdk"
+	dependencySubstitution {
+		substitute(module("de.tutao:tutasdk")).using(project(":sdk"))
+	}
+}
+include ':calendar'
+project(':calendar').projectDir = new File(rootDir, 'calendar/')
+include ':tutashared'

@@ -1,11 +1,11 @@
 package de.tutao.tutanota.push
 
-import de.tutao.tutanota.alarms.EncryptedAlarmNotification
+import de.tutao.tutashared.alarms.EncryptedAlarmNotification
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class MissedNotification(
-		val alarmNotifications: List<EncryptedAlarmNotification>,
-		val notificationInfos: List<NotificationInfo>,
-		val lastProcessedNotificationId: String,
+	val notificationInfos: List<NotificationInfo>,
+	val alarmNotifications: List<EncryptedAlarmNotification>,
+	val lastProcessedNotificationId: String,
 )

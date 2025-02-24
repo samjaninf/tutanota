@@ -9,20 +9,18 @@ pipeline {
 	}
 
     parameters {
-        booleanParam(
-            name: 'dryRun',
-            defaultValue: true,
-            description: "builds the clients and generates release notes if requested, but doesn't modify github or upload any artifacts."
-        )
-        booleanParam(
-            name: 'generateReleaseNotes',
-            defaultValue: false,
-            description: "check if the release notes should be updated in the downstream jobs, uncheck if last runs release notes should be reused."
-        )
+    	choice(
+    		name: 'target',
+    		choices: ['dryRun', 'buildAndPublishToStaging', 'publishToStaging', 'publishToProd'],
+    		description: "dryRun: build no-op (only the prod version is built for mobile)<br>" +
+				"buildAndPublishToStaging: builds staging and prod, uploads both to Nexus, and publishes to staging<br>" +
+				"publishToStaging: downloads from Nexus and publishes to staging<br>" +
+				"publishToProd: downloads from Nexus, publishes to prod, and generates release notes"
+    	)
 		persistentString(
 			name: 'milestone',
 			defaultValue: '',
-			description: 'Which github milestone to reference for generating release notes. leave empty to use version number.'
+			description: 'Which github milestone to reference for generating release notes. leave empty to use version number'
 		)
 		booleanParam(
 			name: "dictionaries",
@@ -32,7 +30,7 @@ pipeline {
         booleanParam(
             name: 'web',
             defaultValue: true,
-            description: "Build the web app and packages (required to build the other clients if the version changed)."
+            description: "Build the web app and packages (required to build the other clients if the version changed)"
         )
         booleanParam(
             name: 'ios',
@@ -49,6 +47,11 @@ pipeline {
             defaultValue: true,
             description: "Build the desktop app"
         )
+        string(
+            name: 'branch',
+            defaultValue: "*/master",
+            description: "the branch to build the release from, will be propagated to the sub-jobs."
+        )
     }
 
     agent {
@@ -58,7 +61,8 @@ pipeline {
     stages {
 		stage("Prepare Release Notes") {
 			agent { label 'master' }
-			when { expression { params.generateReleaseNotes && (params.web || params.android || params.ios || params.desktop) } }
+			// Release Notes are only generating when publishing to Prod
+			when { expression { return params.target.equals("publishToProd") && (params.web || params.android || params.ios || params.desktop) } }
 			steps {
 				sh "npm ci"
 				script { // create release notes
@@ -70,69 +74,183 @@ pipeline {
 
 					releaseNotes = reviewReleaseNotes(web, android, desktop, ios, version)
 					echo("${releaseNotes}")
-				} // script release notes
+				} // script
 			} // steps
 		} // stage prepare release notes
-		stage("web app & packages") {
-			when { expression { params.web } }
-			agent { label 'master'}
-			steps {
-				build job: 'tutanota-3-webapp', parameters: params.generateReleaseNotes ? [
-					booleanParam(name: 'RELEASE', value: !params.dryRun),
-					text(name: "releaseNotes", value: releaseNotes.web),
-				] : [ booleanParam(name: "RELEASE", value: !params.dryRun) ]
-			} // steps
-		} // stage web app & packages
-		stage("other clients") {
-			parallel {
-				stage("Desktop Dicts") {
-					when { expression { params.dictionaries } }
-					steps {
-						script {
-							build job: 'tutanota-3-desktop-dictionaries', parameters: [booleanParam(name: "RELEASE", value: !params.dryRun)]
-						} // script
-					}
-				}
-				stage("Desktop Client") {
-					when { expression { params.desktop } }
-					steps {
-						script {
-							build job: 'tutanota-3-desktop', parameters: params.generateReleaseNotes ? [
-								booleanParam(name: "RELEASE", value: !params.dryRun),
-								text(name: "releaseNotes", value: releaseNotes.desktop),
-							] : [
-								booleanParam(name: "RELEASE", value: !params.dryRun),
-							]
-						} // script
-					} // steps
-				} // stage desktop client
-				stage("iOS Client") {
-					when { expression { params.ios } }
-					steps {
-						script {
-							build job: 'tutanota-3-ios', parameters: params.generateReleaseNotes ? [
-								booleanParam(name: "RELEASE", value: !params.dryRun),
-								text(name: "releaseNotes", value: releaseNotes.ios),
-							] : [
-								booleanParam(name: "RELEASE", value: !params.dryRun),
-							]
-						} // script
-					} // steps
-				} // stage desktop client
-				stage("Android Client") {
-					when { expression { params.android } }
-					steps {
-						script {
-							build job: 'tutanota-3-android', parameters: params.generateReleaseNotes	? [
-								booleanParam(name: "RELEASE", value: !params.dryRun),
-								text(name: "releaseNotes", value: releaseNotes.android),
-							] : [
-								booleanParam(name: "RELEASE", value: !params.dryRun),
-							]
-						} // script
-					} // steps
-				} // stage desktop client
-			} // parallel clients
+		stage("Clients") {
+			environment {
+				BUILD = "${params.target.equals("dryRun") || params.target.equals("buildAndPublishToStaging")}"
+			}
+			// Web/Desktop and Mobile are ran sequentially because we ran into resource allocation issues
+			stages {
+				stage("Web and Desktop") {
+					parallel {
+						stage("Web App & Packages") {
+							when { expression { return params.web } }
+							agent { label 'master'}
+							stages {
+								stage("Build Web") {
+									when { expression { return BUILD.toBoolean() } }
+									steps {
+										build job: 'tutanota-3-webapp', parameters: [
+											booleanParam(name: "UPLOAD", value: params.target.equals("buildAndPublishToStaging")),
+											string(name: "branch", value: params.branch)
+										]
+									} // steps
+								} // stage build
+								stage("Publish Web") {
+									when { expression { return !params.target.equals("dryRun") } }
+									steps {
+										build job: 'tutanota-3-webapp-publish', parameters: params.target.equals("publishToProd") ? [
+											booleanParam(name: 'DEB', value: true),
+											booleanParam(name: 'PUBLISH_NPM_MODULES', value: false),
+											booleanParam(name: 'GITHUB_RELEASE', value: true),
+											text(name: "releaseNotes", value: releaseNotes.web),
+											string(name: "branch", value: params.branch)
+										] : [
+											booleanParam(name: 'DEB', value: true),
+											booleanParam(name: 'PUBLISH_NPM_MODULES', value: params.target.equals("buildAndPublishToStaging")),
+											booleanParam(name: 'GITHUB_RELEASE', value: false),
+											string(name: "branch", value: params.branch)
+										]
+									} // steps
+								} // stage publish
+							} // stages
+						} // stage web app & packages
+
+						stage("Desktop Dicts") {
+							when { expression { return params.dictionaries } }
+							steps {
+								script {
+									build job: 'tutanota-3-desktop-dictionaries', parameters: [
+										booleanParam(name: "RELEASE", value: !params.target.equals("dryRun")),
+										string(name: "branch", value: params.branch)
+									]
+								} // script
+							} // steps
+						} // stage desktop dicts
+
+						stage("Desktop Client") {
+							when { expression { return params.desktop } }
+							stages {
+								stage("Build Desktop") {
+									when { expression { return BUILD.toBoolean() } }
+									steps {
+										script {
+											build job: 'tutanota-3-desktop', parameters: [
+												booleanParam(name: "UPLOAD", value: params.target.equals("buildAndPublishToStaging")),
+												booleanParam(name: "WINDOWS", value: true),
+												booleanParam(name: "MAC", value: true),
+												booleanParam(name: "LINUX", value: true),
+											    string(name: "branch", value: params.branch)
+											]
+										} // script
+									} // steps
+								} // stage build
+								stage("Publish Desktop") {
+									when { expression { return !params.target.equals("dryRun") } }
+									steps {
+										script {
+											build job: 'tutanota-3-desktop-publish', parameters: params.target.equals("publishToProd") ? [
+												booleanParam(name: "DEB", value: true),
+												booleanParam(name: "GITHUB_RELEASE", value: true),
+												text(name: "releaseNotes", value: releaseNotes.desktop),
+											    string(name: "branch", value: params.branch)
+											] : [
+												booleanParam(name: "DEB", value: true),
+												booleanParam(name: "GITHUB_RELEASE", value: false),
+												string(name: "branch", value: params.branch)
+											]
+										} // script
+									} // steps
+								} // stage publish
+							} // stages
+						} // stage desktop client
+					} // parallel
+				} // stage web and desktop
+
+				stage("Mobile") {
+					parallel {
+						stage("iOS Client") {
+							when { expression { return params.ios } }
+							stages {
+								stage("Build iOS") {
+									when { expression { return BUILD.toBoolean() } }
+									steps {
+										script {
+											build job: 'tutanota-3-ios', parameters: [
+												booleanParam(name: "UPLOAD", value: params.target.equals("buildAndPublishToStaging")),
+												booleanParam(name: "STAGING", value: params.target.equals("buildAndPublishToStaging")),
+												booleanParam(name: "PROD", value: true),
+											    string(name: "branch", value: params.branch)
+											]
+										} // script
+									} // steps
+								} // stage build
+								stage("Publish iOS") {
+									when { expression { return !params.target.equals("dryRun") } }
+									steps {
+										script {
+											 build job: 'tutanota-3-ios-publish', parameters: params.target.equals("publishToProd") ? [
+												 booleanParam(name: "STAGING", value: false),
+												 booleanParam(name: "PROD", value: true),
+												 booleanParam(name: "APP_STORE_NOTES", value: true),
+												 booleanParam(name: "GITHUB_RELEASE", value: true),
+												 text(name: "releaseNotes", value: releaseNotes.ios),
+											     string(name: "branch", value: params.branch)
+											 ] : [
+												 booleanParam(name: "STAGING", value: true),
+												 booleanParam(name: "PROD", value: false),
+												 booleanParam(name: "APP_STORE_NOTES", value: false),
+												 booleanParam(name: "GITHUB_RELEASE", value: false),
+    											 string(name: "branch", value: params.branch)
+											 ]
+										} // script
+									} // steps
+								} // stage publish
+							} // stages
+						} // stage ios client
+
+						stage("Android Client") {
+							when { expression { return params.android } }
+							stages {
+								stage("Build Android") {
+									when { expression { return BUILD.toBoolean() } }
+									steps {
+										script {
+											build job: 'tutanota-3-android', parameters: [
+												booleanParam(name: "UPLOAD", value: params.target.equals("buildAndPublishToStaging")),
+												booleanParam(name: "STAGING", value: params.target.equals("buildAndPublishToStaging")),
+												booleanParam(name: "PROD", value: true),
+											    string(name: "branch", value: params.branch)
+											]
+										} // script
+									} // steps
+								} // stage build
+								stage("Publish Android") {
+									when { expression { return !params.target.equals("dryRun") } }
+									steps {
+										script {
+											 build job: 'tutanota-3-android-publish', parameters: params.target.equals("publishToProd") ? [
+												 booleanParam(name: "STAGING", value: false),
+												 booleanParam(name: "PROD", value: true),
+												 booleanParam(name: "GITHUB_RELEASE", value: true),
+												 text(name: "releaseNotes", value: releaseNotes.android),
+											     string(name: "branch", value: params.branch)
+											 ] : [
+												 booleanParam(name: "STAGING", value: true),
+												 booleanParam(name: "PROD", value: false),
+												 booleanParam(name: "GITHUB_RELEASE", value: false),
+											     string(name: "branch", value: params.branch)
+											 ]
+										} // script
+									} // steps
+								} // stage publish
+							} // stages
+						} // stage android client
+					} // parallel
+				} // stage mobile
+			} // stages
 		} // stage other clients
     } // stages
 } // pipeline

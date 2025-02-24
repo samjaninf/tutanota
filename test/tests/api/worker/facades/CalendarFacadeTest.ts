@@ -1,10 +1,10 @@
 import o from "@tutao/otest"
-import type { CalendarEventAlteredInstance, EventWithUserAlarmInfos } from "../../../../../src/api/worker/facades/lazy/CalendarFacade.js"
-import { CalendarFacade, sortByRecurrenceId } from "../../../../../src/api/worker/facades/lazy/CalendarFacade.js"
+import type { CalendarEventAlteredInstance, EventWithUserAlarmInfos } from "../../../../../src/common/api/worker/facades/lazy/CalendarFacade.js"
+import { CalendarFacade, sortByRecurrenceId } from "../../../../../src/common/api/worker/facades/lazy/CalendarFacade.js"
 import { EntityRestClientMock } from "../rest/EntityRestClientMock.js"
-import { DefaultEntityRestCache } from "../../../../../src/api/worker/rest/DefaultEntityRestCache.js"
+import { DefaultEntityRestCache } from "../../../../../src/common/api/worker/rest/DefaultEntityRestCache.js"
 import { clone, downcast, isSameTypeRef, neverNull, noOp } from "@tutao/tutanota-utils"
-import type { AlarmInfo, User, UserAlarmInfo } from "../../../../../src/api/entities/sys/TypeRefs.js"
+import type { AlarmInfo, User, UserAlarmInfo } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
 import {
 	AlarmInfoTypeRef,
 	CalendarEventRefTypeRef,
@@ -13,24 +13,25 @@ import {
 	UserAlarmInfoListTypeTypeRef,
 	UserAlarmInfoTypeRef,
 	UserTypeRef,
-} from "../../../../../src/api/entities/sys/TypeRefs.js"
-import { getElementId, getLetId, getListId } from "../../../../../src/api/common/utils/EntityUtils.js"
-import type { CalendarEvent } from "../../../../../src/api/entities/tutanota/TypeRefs.js"
-import { CalendarEventTypeRef } from "../../../../../src/api/entities/tutanota/TypeRefs.js"
-import { ProgressMonitor } from "../../../../../src/api/common/utils/ProgressMonitor.js"
+} from "../../../../../src/common/api/entities/sys/TypeRefs.js"
+import { getElementId, getLetId, getListId } from "../../../../../src/common/api/common/utils/EntityUtils.js"
+import type { CalendarEvent } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { CalendarEventTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { ProgressMonitor } from "../../../../../src/common/api/common/utils/ProgressMonitor.js"
 import { assertThrows, mockAttribute, spy, unmockAttribute } from "@tutao/tutanota-test-utils"
-import { ImportError } from "../../../../../src/api/common/error/ImportError.js"
-import { SetupMultipleError } from "../../../../../src/api/common/error/SetupMultipleError.js"
-import { InstanceMapper } from "../../../../../src/api/worker/crypto/InstanceMapper.js"
-import { GroupManagementFacade } from "../../../../../src/api/worker/facades/lazy/GroupManagementFacade.js"
+import { ImportError } from "../../../../../src/common/api/common/error/ImportError.js"
+import { SetupMultipleError } from "../../../../../src/common/api/common/error/SetupMultipleError.js"
+import { InstanceMapper } from "../../../../../src/common/api/worker/crypto/InstanceMapper.js"
+import { GroupManagementFacade } from "../../../../../src/common/api/worker/facades/lazy/GroupManagementFacade.js"
 import { object } from "testdouble"
-import { IServiceExecutor } from "../../../../../src/api/common/ServiceRequest"
-import { CryptoFacade } from "../../../../../src/api/worker/crypto/CryptoFacade"
-import { UserFacade } from "../../../../../src/api/worker/facades/UserFacade"
-import { InfoMessageHandler } from "../../../../../src/gui/InfoMessageHandler.js"
-import { ConnectionError } from "../../../../../src/api/common/error/RestError.js"
-import { EntityClient } from "../../../../../src/api/common/EntityClient.js"
+import { IServiceExecutor } from "../../../../../src/common/api/common/ServiceRequest"
+import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade"
+import { UserFacade } from "../../../../../src/common/api/worker/facades/UserFacade"
+import { InfoMessageHandler } from "../../../../../src/common/gui/InfoMessageHandler.js"
+import { ConnectionError } from "../../../../../src/common/api/common/error/RestError.js"
+import { EntityClient } from "../../../../../src/common/api/common/EntityClient.js"
 import { createTestEntity } from "../../../TestUtils.js"
+import { EntityRestClient } from "../../../../../src/common/api/worker/rest/EntityRestClient"
 
 o.spec("CalendarFacadeTest", function () {
 	let userAlarmInfoListId: Id
@@ -41,7 +42,7 @@ o.spec("CalendarFacadeTest", function () {
 	let entityRestCache: DefaultEntityRestCache
 	let calendarFacade: CalendarFacade
 	let progressMonitor: ProgressMonitor
-	let entityRequest: Function
+	let entityRequest: EntityRestClient["setupMultiple"]
 	let requestSpy: any
 	let sendAlarmNotificationsMock
 	let loadAllMock
@@ -148,11 +149,11 @@ o.spec("CalendarFacadeTest", function () {
 				}
 				throw new Error("should not be called with typeRef: " + typeRef)
 			}
-			entityRequest = function () {
-				return Promise.resolve()
+			entityRequest = async function () {
+				throw new Error("not implemented")
 			} //dummy overwrite in test
-			requestSpy = spy(function () {
-				return entityRequest.apply(this, arguments)
+			requestSpy = spy(function (...args) {
+				return entityRequest.apply(this, args)
 			})
 
 			// @ts-ignore
@@ -170,9 +171,10 @@ o.spec("CalendarFacadeTest", function () {
 			entityRequest = function (listId, instances) {
 				const typeRef = instances[0]?._type
 				if (isSameTypeRef(typeRef, CalendarEventTypeRef)) {
-					o(instances.length).equals(2)
-					o(instances[0].alarmInfos).deepEquals([[userAlarmInfoListId, "1"]])
-					o(instances[1].alarmInfos).deepEquals([
+					const calendarInstances = instances as unknown as CalendarEvent[]
+					o(calendarInstances.length).equals(2)
+					o(calendarInstances[0].alarmInfos).deepEquals([[userAlarmInfoListId, "1"]])
+					o(calendarInstances[1].alarmInfos).deepEquals([
 						[userAlarmInfoListId, "2"],
 						[userAlarmInfoListId, "3"],
 					])
@@ -180,6 +182,8 @@ o.spec("CalendarFacadeTest", function () {
 				} else if (isSameTypeRef(typeRef, UserAlarmInfoTypeRef)) {
 					o(instances.length).equals(3)
 					return Promise.resolve(["1", "2", "3"])
+				} else {
+					throw new Error()
 				}
 			}
 

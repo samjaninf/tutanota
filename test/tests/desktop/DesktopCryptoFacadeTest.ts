@@ -1,11 +1,11 @@
 import n from "../nodemocker.js"
 import o from "@tutao/otest"
-import { DesktopNativeCryptoFacade } from "../../../src/desktop/DesktopNativeCryptoFacade.js"
+import { DesktopNativeCryptoFacade } from "../../../src/common/desktop/DesktopNativeCryptoFacade.js"
 import { downcast, stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
-import type { CryptoFunctions } from "../../../src/desktop/CryptoFns.js"
-import { keyToUint8Array, uint8ArrayToBitArray } from "@tutao/tutanota-crypto"
+import type { CryptoFunctions } from "../../../src/common/desktop/CryptoFns.js"
+import { Argon2IDExports, keyToUint8Array, uint8ArrayToBitArray } from "@tutao/tutanota-crypto"
 import { matchers, object, verify, when } from "testdouble"
-import { TempFs } from "../../../src/desktop/files/TempFs.js"
+import { TempFs } from "../../../src/common/desktop/files/TempFs.js"
 
 o.spec("DesktopCryptoFacadeTest", () => {
 	const data = Buffer.from([42])
@@ -69,7 +69,7 @@ o.spec("DesktopCryptoFacadeTest", () => {
 		when(tfs.ensureEncryptedDir()).thenResolve("/some/other/path/to/encrypted")
 		when(tfs.ensureUnencrytpedDir()).thenResolve("/some/other/path/to/decrypted")
 
-		const argon2: Promise<WebAssembly.Exports> = Promise.resolve(object())
+		const argon2: Promise<Argon2IDExports> = Promise.resolve(object())
 		const desktopCrypto = new DesktopNativeCryptoFacade(fsMock, cryptoFnsMock, tfs, argon2)
 		return Object.assign({}, sm, {
 			fsMock,

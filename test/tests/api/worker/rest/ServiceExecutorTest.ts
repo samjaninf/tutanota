@@ -1,17 +1,17 @@
 import o from "@tutao/otest"
-import { ServiceExecutor } from "../../../../../src/api/worker/rest/ServiceExecutor.js"
-import { RestClient, RestClientOptions } from "../../../../../src/api/worker/rest/RestClient.js"
-import { InstanceMapper } from "../../../../../src/api/worker/crypto/InstanceMapper.js"
-import { CryptoFacade } from "../../../../../src/api/worker/crypto/CryptoFacade.js"
+import { ServiceExecutor } from "../../../../../src/common/api/worker/rest/ServiceExecutor.js"
+import { RestClient, RestClientOptions } from "../../../../../src/common/api/worker/rest/RestClient.js"
+import { InstanceMapper } from "../../../../../src/common/api/worker/crypto/InstanceMapper.js"
+import { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade.js"
 import { matchers, object, when } from "testdouble"
-import { DeleteService, GetService, PostService, PutService } from "../../../../../src/api/common/ServiceRequest.js"
-import { AlarmServicePostTypeRef, GiftCardCreateDataTypeRef, SaltDataTypeRef } from "../../../../../src/api/entities/sys/TypeRefs.js"
-import { HttpMethod, MediaType, resolveTypeReference } from "../../../../../src/api/common/EntityFunctions.js"
+import { DeleteService, GetService, PostService, PutService } from "../../../../../src/common/api/common/ServiceRequest.js"
+import { AlarmServicePostTypeRef, GiftCardCreateDataTypeRef, SaltDataTypeRef } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
+import { HttpMethod, MediaType, resolveTypeReference } from "../../../../../src/common/api/common/EntityFunctions.js"
 import { deepEqual } from "@tutao/tutanota-utils"
 import { assertThrows, verify } from "@tutao/tutanota-test-utils"
-import { ProgrammingError } from "../../../../../src/api/common/error/ProgrammingError"
-import { AuthDataProvider } from "../../../../../src/api/worker/facades/UserFacade"
-import { LoginIncompleteError } from "../../../../../src/api/common/error/LoginIncompleteError.js"
+import { ProgrammingError } from "../../../../../src/common/api/common/error/ProgrammingError"
+import { AuthDataProvider } from "../../../../../src/common/api/worker/facades/UserFacade"
+import { LoginIncompleteError } from "../../../../../src/common/api/common/error/LoginIncompleteError.js"
 import { createTestEntity } from "../../../TestUtils.js"
 
 const { anything } = matchers
@@ -533,7 +533,7 @@ o.spec("ServiceExecutor", function () {
 			const literal = { literal: true }
 			const saltTypeModel = await resolveTypeReference(SaltDataTypeRef)
 			const sessionKey = [1, 2, 3]
-			when(cryptoFacade.resolveServiceSessionKey(saltTypeModel, literal)).thenResolve(sessionKey)
+			when(cryptoFacade.resolveServiceSessionKey(literal)).thenResolve(sessionKey)
 			when(instanceMapper.decryptAndMapToInstance(saltTypeModel, literal, sessionKey)).thenResolve(returnData)
 
 			respondWith(`{"literal":true}`)
@@ -562,7 +562,7 @@ o.spec("ServiceExecutor", function () {
 			const literal = { literal: true }
 			const saltTypeModel = await resolveTypeReference(SaltDataTypeRef)
 			const sessionKey = [1, 2, 3]
-			when(cryptoFacade.resolveServiceSessionKey(saltTypeModel, literal)).thenResolve(null)
+			when(cryptoFacade.resolveServiceSessionKey(literal)).thenResolve(null)
 			when(instanceMapper.decryptAndMapToInstance(saltTypeModel, literal, sessionKey)).thenResolve(returnData)
 
 			respondWith(`{"literal":true}`)

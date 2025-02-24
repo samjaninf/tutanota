@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-@testable import tutanota
+@testable import TutanotaSharedFramework
 
 // used for testing Swift code
 class CompatibilityTestSwift: XCTestCase {
@@ -15,28 +15,32 @@ class CompatibilityTestSwift: XCTestCase {
 		self.testData = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
 	}
 
-	func testArgon2id() {
-		// same parameters we use everywhere else
-		let ARGON2ID_HASH_LENGTH: Int = 32
-		let ARGON2ID_ITERATIONS: UInt = 4
-		let ARGON2ID_PARALLELISM: UInt = 1
-		let ARGON2ID_MEMORY_COST: UInt = 32 * 1024
-
+	func testArgon2id() async throws {
+		let facade = IosNativeCryptoFacade()
 		let tests = (testData!["argon2idTests"] as? [[String: String]])!
 		for test in tests {
-			let password = DataWrapper(data: TUTEncodingConverter.string(toBytes: test["password"]!))
+			let passphrase = test["password"]!
 			let expectedHash = TUTEncodingConverter.hex(toBytes: test["keyHex"]!)
 			let salt = TUTEncodingConverter.hex(toBytes: test["saltHex"]!)
-			let result = try! generateArgon2idHash(
-				ofPassword: password,
-				ofHashLength: ARGON2ID_HASH_LENGTH,
-				withSalt: salt,
-				withIterations: ARGON2ID_ITERATIONS,
-				withParallelism: ARGON2ID_PARALLELISM,
-				withMemoryCost: ARGON2ID_MEMORY_COST
-			)
-			XCTAssert(password.data.allSatisfy { $0 == 0 })
-			XCTAssertEqual(expectedHash, result)
+			let result = try! await facade.argon2idGeneratePassphraseKey(passphrase, salt.wrap())
+			XCTAssertEqual(expectedHash, result.data)
+		}
+	}
+
+	func testRsa() async throws {
+		let facade = IosNativeCryptoFacade()
+		let tests = (testData!["rsaEncryptionTests"] as? [[String: String]])!
+		for test in tests {
+			let publicKey = try hexToRsaPublicKey(test["publicKey"]!)
+			let privateKey = try hexToRsaPrivateKey(test["privateKey"]!)
+			let plainText = TUTEncodingConverter.hex(toBytes: test["input"]!)
+			let encResult = TUTEncodingConverter.hex(toBytes: test["result"]!)
+			let seed = TUTEncodingConverter.hex(toBytes: test["seed"]!)
+
+			let encrypted = try await facade.rsaEncrypt(publicKey, plainText.wrap(), seed.wrap())
+			XCTAssertEqual(encResult, encrypted.data)
+			let decrypted = try await facade.rsaDecrypt(privateKey, encResult.wrap())
+			XCTAssertEqual(plainText, decrypted.data)
 		}
 	}
 
@@ -96,6 +100,31 @@ class CompatibilityTestSwift: XCTestCase {
 		}
 	}
 
+	private func hexToRsaPublicKey(_ hex: String) throws -> RsaPublicKey {
+		let components = try hexComponents(fromHex: hex, sizeDivisor: 2)
+		return RsaPublicKey(
+			version: 0,
+			keyLength: RSA_KEY_LENGTH_IN_BITS,
+			modulus: TUTEncodingConverter.bytes(toBase64: components[0]),
+			publicExponent: PUBLIC_EXPONENT
+		)
+	}
+
+	private func hexToRsaPrivateKey(_ hex: String) throws -> RsaPrivateKey {
+		let components = try hexComponents(fromHex: hex, sizeDivisor: 2)
+		return RsaPrivateKey(
+			version: 0,
+			keyLength: RSA_KEY_LENGTH_IN_BITS,
+			modulus: TUTEncodingConverter.bytes(toBase64: components[0]),
+			privateExponent: TUTEncodingConverter.bytes(toBase64: components[1]),
+			primeP: TUTEncodingConverter.bytes(toBase64: components[2]),
+			primeQ: TUTEncodingConverter.bytes(toBase64: components[3]),
+			primeExponentP: TUTEncodingConverter.bytes(toBase64: components[4]),
+			primeExponentQ: TUTEncodingConverter.bytes(toBase64: components[5]),
+			crtCoefficient: TUTEncodingConverter.bytes(toBase64: components[6])
+		)
+	}
+
 	private func doAes(testKey: String, withMAC: Bool) throws {
 		let tests = (testData![testKey] as? [[String: Any]])!
 		for test in tests {
@@ -111,7 +140,7 @@ class CompatibilityTestSwift: XCTestCase {
 		}
 	}
 
-	func testKyber() throws {
+	func testKyber() async throws {
 		let tests = (testData!["kyberEncryptionTests"] as? [[String: Any]])!
 		for test in tests {
 			let publicKey = try kyberParsePublicKey(hex: test["publicKey"]! as! String)
@@ -120,16 +149,13 @@ class CompatibilityTestSwift: XCTestCase {
 			let sharedSecretBytes = TUTEncodingConverter.hex(toBytes: test["sharedSecret"]! as! String)
 			let seed = TUTEncodingConverter.hex(toBytes: test["seed"]! as! String)
 
-			let encaps = try kyberEncapsulate(publicKey: publicKey, withSeed: seed)
-			XCTAssertEqual(cipherTextBytes, encaps.ciphertext.data)
-			XCTAssertEqual(sharedSecretBytes, encaps.sharedSecret.data)
-
-			let decaps = try kyberDecapsulate(ciphertext: cipherTextBytes, withPrivateKey: privateKey)
+			let facade = IosNativeCryptoFacade()
+			let decaps = try await facade.kyberDecapsulate(privateKey, cipherTextBytes.wrap())
 			XCTAssertEqual(sharedSecretBytes, decaps.data)
 		}
 	}
 
-	private func hexComponents(fromHex hex: String) throws -> [Data] {
+	private func hexComponents(fromHex hex: String, sizeDivisor: Int) throws -> [Data] {
 		let converted = TUTEncodingConverter.hex(toBytes: hex)
 		var offset = 0
 
@@ -138,8 +164,8 @@ class CompatibilityTestSwift: XCTestCase {
 			// Make sure we can read a full size
 			guard offset + 2 <= converted.count else { throw TutanotaError(message: "Badly formatted hex components string (size cutoff)") }
 
-			// Get the nibble count - ensure it's even!
-			let sizeBytes = Int(converted[offset]) << 8 | Int(converted[offset + 1])  // big endian
+			// Get the size count
+			let sizeBytes = (Int(converted[offset]) << 8 | Int(converted[offset + 1])) / sizeDivisor  // big endian
 
 			offset += 2
 			guard offset + sizeBytes <= converted.count else { throw TutanotaError(message: "Badly formatted hex components string (size cutoff)") }
@@ -153,14 +179,14 @@ class CompatibilityTestSwift: XCTestCase {
 	private func kyberParsePublicKey(hex: String) throws -> KyberPublicKey {
 		// key is expected by oqs in the same order t, rho
 
-		let components = try hexComponents(fromHex: hex)
+		let components = try hexComponents(fromHex: hex, sizeDivisor: 1)
 		return KyberPublicKey(raw: DataWrapper(data: components[0] + components[1]))
 	}
 
 	private func kyberParsePrivateKey(hex: String) throws -> KyberPrivateKey {
 		// key is expected by oqs in this order (vs how we encode it on the server): s, t, rho, hpk, nonce
 
-		let components = try hexComponents(fromHex: hex)
+		let components = try hexComponents(fromHex: hex, sizeDivisor: 1)
 		return KyberPrivateKey(raw: DataWrapper(data: components[0] + components[3] + components[4] + components[1] + components[2]))
 	}
 

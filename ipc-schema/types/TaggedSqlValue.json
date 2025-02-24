@@ -2,7 +2,7 @@
 	"name": "TaggedSqlValue",
 	"type": "typeref",
 	"location": {
-		"typescript": "../src/api/worker/offline/SqlValue.js",
-		"kotlin": "de.tutao.tutanota.offline.TaggedSqlValue"
+		"typescript": "../src/common/api/worker/offline/SqlValue.js",
+		"kotlin": "de.tutao.tutashared.offline.TaggedSqlValue"
 	}
 }

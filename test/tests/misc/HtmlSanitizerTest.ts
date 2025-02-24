@@ -1,6 +1,6 @@
 import o from "@tutao/otest"
-import { htmlSanitizer, PREVENT_EXTERNAL_IMAGE_LOADING_ICON } from "../../../src/misc/HtmlSanitizer.js"
-import { createDataFile } from "../../../src/api/common/DataFile.js"
+import { htmlSanitizer, PREVENT_EXTERNAL_IMAGE_LOADING_ICON } from "../../../src/common/misc/HtmlSanitizer.js"
+import { createDataFile } from "../../../src/common/api/common/DataFile.js"
 import { stringToUtf8Uint8Array, utf8Uint8ArrayToString } from "@tutao/tutanota-utils"
 
 o.spec(
@@ -514,7 +514,7 @@ o.spec(
 			let result = htmlSanitizer.sanitizeHTML('<div><embed src="https://tutanota.com/images/favicon/favicon.ico"></div>', {
 				blockExternalContent: true,
 			})
-			o(result.blockedExternalContent).equals(0)
+			o(result.blockedExternalContent).equals(1)
 			o(result.html).equals("<div></div>")
 			result = htmlSanitizer.sanitizeHTML('<div><embed src="https://tutanota.com/images/favicon/favicon.ico"></div>', {
 				blockExternalContent: false,

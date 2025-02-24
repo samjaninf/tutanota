@@ -27,6 +27,7 @@
 			"ret": "void"
 		},
 		"openMailBox": {
+			"doc": "Opens the mailbox of an address, optionally to an email specified by requestedPath",
 			"arg": [
 				{
 					"userId": "string"
@@ -44,6 +45,14 @@
 			"arg": [
 				{
 					"userId": "string"
+				}
+			],
+			"ret": "void"
+		},
+		"openContactEditor": {
+			"arg": [
+				{
+					"contactId": "string"
 				}
 			],
 			"ret": "void"
@@ -86,6 +95,24 @@
 				}
 			],
 			"ret": "string"
+		},
+		"handleFileImport": {
+			"doc": "Pass a list of files (.vcf) to be handled by the app and if compatible, import them",
+			"arg": [
+				{
+					"filesUris": "List<string>"
+				}
+			],
+			"ret": "void"
+		},
+		"openSettings": {
+			"doc": "Open a specified path inside settings",
+			"arg": [
+				{
+					"path": "string"
+				}
+			],
+			"ret": "void"
 		}
 	}
 }

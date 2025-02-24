@@ -1,8 +1,12 @@
 build
+cache
+target
+build-calendar-app
 dist
 node_modules
 .idea
 .gradle
+/.run
 test-ca
 **/.DS_STORE
 **/*.xcbkptlist
@@ -18,3 +22,9 @@ test/undefined/*
 artifacts
 .vscode
 libs/webassembly/include/
+tuta-sdk/out
+app-android/app/src/main/jniLibs
+app-android/app/src/main/java/de/tutao/tutasdk
+DerivedData/
+tuta-sdk/rust/out
+tuta-sdk/android

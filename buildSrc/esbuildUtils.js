@@ -1,12 +1,12 @@
-import { getNativeLibModulePath } from "./nativeLibraryProvider.js"
 import fs from "fs-extra"
 import path from "node:path"
 import { dependencyMap } from "./RollupConfig.js"
 import { aliasPath as esbuildPluginAliasPath } from "esbuild-plugin-alias-path"
+import { getNativeLibModulePaths } from "./nativeLibraryProvider.js"
 
 /**
  * Little plugin that obtains compiled better-sqlite3, copies it to dstPath and sets the path to nativeBindingPath.
- * We do not use default file loader from esbuild, it is much simpler and reliable to do it manually and it doesn't work for dynamic import (like in this case)
+ * We do not use default file loader from esbuild, it is much simpler and reliable to do it manually, and it doesn't work for dynamic import (like in this case)
  * anyway.
  * It will also replace `buildOptions.sqliteNativePath` with the nativeBindingPath
  */
@@ -21,7 +21,7 @@ export function sqliteNativePlugin({ environment, dstPath, nativeBindingPath, pl
 			options.define["buildOptions.sqliteNativePath"] = `"${nativeLibPath}"`
 
 			build.onStart(async () => {
-				const modulePath = await getNativeLibModulePath({
+				const modulePaths = await getNativeLibModulePaths({
 					nodeModule: "better-sqlite3",
 					environment,
 					rootDir: process.cwd(),
@@ -31,7 +31,43 @@ export function sqliteNativePlugin({ environment, dstPath, nativeBindingPath, pl
 					copyTarget: "better_sqlite3",
 				})
 				await fs.promises.mkdir(path.dirname(dstPath), { recursive: true })
-				await fs.promises.copyFile(modulePath, dstPath)
+				await fs.promises.copyFile(modulePaths[process.arch], dstPath)
+			})
+		},
+	}
+}
+
+export function mimimiNativePlugin({ dstPath, platform }) {
+	return {
+		name: "mimimi-native-plugin",
+		setup(build) {
+			const options = build.initialOptions
+			options.define = options.define ?? {}
+
+			build.onStart(async () => {
+				let nativeBinaryName
+				switch (platform) {
+					case "linux":
+						nativeBinaryName = "node-mimimi.linux-x64-gnu.node"
+						break
+					case "win32":
+						nativeBinaryName = "node-mimimi.win32-x64-msvc.node"
+						break
+					case "darwin":
+						// this is a dev build, so we always take the native arch.
+						nativeBinaryName = `node-mimimi.darwin-${process.arch}.node`
+						break
+					default:
+						throw Error(`could not find node-mimimi binary: platform ${platform} is unknown`)
+				}
+
+				// Replace mentions of buildOptions.mimimiNativePath with the actual path
+				options.define["buildOptions.mimimiNativePath"] = `"./${nativeBinaryName}"`
+
+				const nativeBinarySourcePath = path.join(process.cwd(), "./packages/node-mimimi/dist", nativeBinaryName)
+
+				await fs.mkdir(path.join(process.cwd(), dstPath), { recursive: true })
+				await fs.promises.copyFile(nativeBinarySourcePath, path.join(process.cwd(), dstPath, nativeBinaryName))
 			})
 		},
 	}
@@ -65,27 +101,28 @@ export function preludeEnvPlugin(env) {
 
 /** Do not embed translations in the source, compile them separately so that ouput is not as huge. */
 export function externalTranslationsPlugin() {
+	const nodePath = path
 	return {
 		name: "skip-translations",
 		setup(build) {
-			// We do a few tricks here
-			build.onResolve({ filter: /^\.\.\/translations\/.+$/, namespace: "file" }, ({ path }) => {
-				// We replace all the translation imports (they all start with .. but we could rewrite it more generally at the cost of complexity
-				// We should go from ../translations/en.js to ./translations/en.mjs
+			build.onResolve({ filter: /.*\/translations\/.+$/, namespace: "file" }, ({ path }) => {
+				// We replace all the translation imports.
+				// We should go from ../../translations/en.js to ./translations/en.mjs
 				// Out output structure is always flat (except for desktop which is it's own flat structure) so we know that we can find translations in the
 				// ./translations
 				// We marked them as external because we don't want esbuild to roll them up, it makes output *huge*
 				// We add .mjs suffix so that we can import it from Electron without issues (more on that below). This is not necessary for of web but doesn't
 				// hurt either.
-				const replacementPath = path.substring(1).replace(".js", ".mjs")
+				const parsedPath = nodePath.parse(path)
+				const newPath = `./translations/${parsedPath.name}.mjs`
 				return {
-					path: replacementPath,
+					path: newPath,
 					external: true,
 				}
 			})
 			build.onEnd(async () => {
 				// After the main build is done we go and compile all translations. Alternatively we could collect all imports from onResolve().
-				const translations = await globby("src/translations/*.ts")
+				const translations = await globby("src/mail-app/translations/*.ts")
 				await build.esbuild.build({
 					// Always esm, even though desktop is compiled to commonjs because translations do `export default` and esbuild doesn't pick the correct
 					// interop.
@@ -97,7 +134,7 @@ export function externalTranslationsPlugin() {
 					outExtension: { [".js"]: ".mjs" },
 					// So that it outputs build/translations/de.js instead of build/de.js
 					// (or build/desktop/translations/de.js instead of build/desktop/de.js)
-					outbase: "src",
+					outbase: "src/mail-app",
 				})
 			})
 		},
