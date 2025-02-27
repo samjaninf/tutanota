@@ -1,10 +1,10 @@
 import m, { Children, ClassComponent, Vnode } from "mithril"
-import { modal } from "./gui/base/Modal"
-import { overlay } from "./gui/base/Overlay"
-import { styles } from "./gui/styles"
-import { assertMainOrNodeBoot, isApp } from "./api/common/Env"
-import { Keys } from "./api/common/TutanotaConstants.js"
-import { isKeyPressed } from "./misc/KeyManager.js"
+import { modal } from "./common/gui/base/Modal"
+import { overlay } from "./common/gui/base/Overlay"
+import { styles } from "./common/gui/styles"
+import { assertMainOrNodeBoot, isApp } from "./common/api/common/Env"
+import { Keys } from "./common/api/common/TutanotaConstants.js"
+import { isKeyPressed } from "./common/misc/KeyManager.js"
 
 assertMainOrNodeBoot()
 
@@ -22,7 +22,7 @@ export const enum LayerType {
 	Overlay = 400,
 }
 
-const enum PrimaryNavigationType {
+export const enum PrimaryNavigationType {
 	Keyboard,
 	Touch,
 	Mouse,
@@ -31,7 +31,7 @@ const enum PrimaryNavigationType {
 
 // global, in case we have multiple instances for some reason
 /** What we infer to be the user's preferred navigation type. */
-let currentNavigationType: PrimaryNavigationType = isApp() ? PrimaryNavigationType.Touch : PrimaryNavigationType.Mouse
+export let currentNavigationType: PrimaryNavigationType = isApp() ? PrimaryNavigationType.Touch : PrimaryNavigationType.Mouse
 
 /**
  * View which wraps anything that we render.
@@ -39,6 +39,7 @@ let currentNavigationType: PrimaryNavigationType = isApp() ? PrimaryNavigationTy
  */
 export class RootView implements ClassComponent {
 	private dom: HTMLElement | null = null
+
 	constructor() {
 		// still "old-style" component, we don't want to lose "this" reference
 		this.view = this.view.bind(this)
@@ -63,7 +64,7 @@ export class RootView implements ClassComponent {
 				},
 				onkeyup: (e: EventRedraw<KeyboardEvent>) => {
 					// tab key can be pressed in some other situations e.g. editor but it would be switched back quickly again if needed.
-					if (isKeyPressed(e.key, Keys.TAB)) {
+					if (isKeyPressed(e.key, Keys.TAB, Keys.UP, Keys.DOWN, Keys.J, Keys.K)) {
 						this.switchNavType(PrimaryNavigationType.Keyboard)
 					}
 					e.redraw = false

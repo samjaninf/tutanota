@@ -11,12 +11,12 @@
 	<uses-permission android:name="android.permission.VIBRATE"/>
 	<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-	<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 	<uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 	<uses-permission android:name="android.permission.GET_ACCOUNTS"/>
 	<uses-permission android:name="android.permission.MANAGE_ACCOUNTS"/>
 	<uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS"/>
 	<uses-permission android:name="android.permission.USE_CREDENTIALS"/>
+	<uses-permission android:name="android.permission.WRITE_SYNC_SETTINGS"/>
 	<uses-permission
 			android:name="android.permission.SCHEDULE_EXACT_ALARM"
 			android:maxSdkVersion="32"/>
@@ -35,7 +35,7 @@
 	-->
 	<application
 			android:allowBackup="false"
-			android:icon="@mipmap/ic_launcher"
+			android:icon="@mipmap/ic_logo"
 			android:label="@string/app_name"
 			android:supportsRtl="true"
 			android:theme="@style/AppTheme"
@@ -65,6 +65,29 @@
 				<category android:name="android.intent.category.DEFAULT"/>
 				<data android:mimeType="*/*"/>
 			</intent-filter>
+			<!--Handler for "open" event for a vCard file-->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW"/>
+
+				<category android:name="android.intent.category.DEFAULT"/>
+				<category android:name="android.intent.category.BROWSABLE"/>
+
+				<data android:scheme="file"/>
+				<data android:scheme="content"/>
+				<data android:mimeType="text/vcard"/>
+				<data android:mimeType="text/x-vcard"/>
+			</intent-filter>
+			<!--Handler for "open" event for a ics file-->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW"/>
+
+				<category android:name="android.intent.category.DEFAULT"/>
+				<category android:name="android.intent.category.BROWSABLE"/>
+
+				<data android:scheme="file"/>
+				<data android:scheme="content"/>
+				<data android:mimeType="text/calendar"/>
+			</intent-filter>
 			<!--Handler for "mailto:" links-->
 			<intent-filter>
 				<action android:name="android.intent.action.SEND"/>
@@ -93,6 +116,15 @@
 				<category android:name="android.intent.category.DEFAULT"/>
 
 				<action android:name="android.intent.action.VIEW"/>
+			</intent-filter>
+			<intent-filter>
+				<data
+						android:scheme="tutamail"
+						android:host="interop"/>
+				<action android:name="android.intent.action.EDIT"/>
+
+				<category android:name="android.intent.category.DEFAULT"/>
+				<category android:name="android.intent.category.BROWSABLE"/>
 			</intent-filter>
 
 			<intent-filter>
@@ -125,16 +157,32 @@
 				android:process=":pushprocess"/>
 
 
-		<service android:name=".credentials.AccountManagerAuthenticatorService"
-				 android:exported="false">
+		<service
+				android:name="de.tutao.tutashared.credentials.AccountAuthenticatorService"
+				android:exported="false">
 			<intent-filter>
 				<action android:name="android.accounts.AccountAuthenticator"/>
 			</intent-filter>
+
 			<meta-data
 					android:name="android.accounts.AccountAuthenticator"
-					android:resource="@xml/authenticator"/>
+					android:resource="@xml/account_authenticator"/>
 		</service>
 
+		<service
+				android:name=".StubSyncService"
+				android:exported="true"
+				android:process=":sync">
+			<intent-filter>
+				<action android:name="android.content.SyncAdapter"/>
+			</intent-filter>
+			<meta-data
+					android:name="android.content.SyncAdapter"
+					android:resource="@xml/syncadapter"/>
+			<meta-data
+					android:name="android.provider.CONTACTS_STRUCTURE"
+					android:resource="@xml/contacts"/>
+		</service>
 
 		<receiver
 				android:name=".push.BootBroadcastReceiver"
@@ -151,6 +199,14 @@
 			<intent-filter>
 				<action android:name="de.tutao.tutanota.ALARM"/>
 				<data android:scheme="alarm"/>
+			</intent-filter>
+		</receiver>
+
+		<receiver
+				android:name=".push.MailNotificationActionReceiver"
+				android:exported="false">
+			<intent-filter>
+				<action android:name="de.tutao.tutanota.MAIL_ACTION_RECEIVER"/>
 			</intent-filter>
 		</receiver>
 

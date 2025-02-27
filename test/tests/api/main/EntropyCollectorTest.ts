@@ -1,6 +1,6 @@
 import o from "@tutao/otest"
-import { EntropyCollector } from "../../../../src/api/main/EntropyCollector.js"
-import { EntropyDataChunk, EntropyFacade } from "../../../../src/api/worker/facades/EntropyFacade.js"
+import { EntropyCollector } from "../../../../src/common/api/main/EntropyCollector.js"
+import { EntropyDataChunk, EntropyFacade } from "../../../../src/common/api/worker/facades/EntropyFacade.js"
 import { matchers, object, when } from "testdouble"
 import { SchedulerMock } from "../../TestUtils.js"
 import { getFromMap, remove } from "@tutao/tutanota-utils"
@@ -8,7 +8,7 @@ import { getFromMap, remove } from "@tutao/tutanota-utils"
 class FakeWindow {
 	listeners: Map<string, ((e: unknown) => unknown)[]> = new Map()
 
-	addEventListener: typeof Window.prototype["addEventListener"] = (event, listener) => {
+	addEventListener: (typeof Window.prototype)["addEventListener"] = (event, listener) => {
 		this.getListeners(event).push(listener)
 	}
 
@@ -16,7 +16,7 @@ class FakeWindow {
 		return getFromMap(this.listeners, event, () => [])
 	}
 
-	removeEventListener: typeof Window.prototype["removeEventListener"] = (event, listener) => {
+	removeEventListener: (typeof Window.prototype)["removeEventListener"] = (event, listener) => {
 		remove(this.getListeners(event), listener)
 	}
 
@@ -26,7 +26,7 @@ class FakeWindow {
 		}
 	}
 
-	crypto: Partial<typeof Window.prototype["crypto"]> = {
+	crypto: Partial<(typeof Window.prototype)["crypto"]> = {
 		getRandomValues<T extends ArrayBufferView | null>(array: T): T {
 			if (array) {
 				array[0] = 32

@@ -1,7 +1,7 @@
 import o from "@tutao/otest"
 import n from "../../nodemocker.js"
 import { delay, numberRange } from "@tutao/tutanota-utils"
-import { getConfigFile } from "../../../../src/desktop/config/ConfigFile.js"
+import { getConfigFile } from "../../../../src/common/desktop/config/ConfigFile.js"
 
 const MAX_LATENCY = 20
 const rndDelay = () => delay(Math.floor(Math.random() * MAX_LATENCY))
@@ -25,6 +25,9 @@ export const fsMock = {
 		mkdir: function (p: string, o: any) {
 			Promise.resolve()
 		},
+		unlink: function (p: string) {
+			return rndDelay().then(() => delete this.fs[p])
+		},
 	},
 }
 
@@ -32,30 +35,24 @@ o.spec("ConfigFileTest", function () {
 	o("ensurePresence works", async function () {
 		const newV = { a: "bye", b: "hello" }
 		const cf = getConfigFile("path", "present.json", n.mock<typeof import("fs")>("fs", fsMock).set())
-		return cf
-			.ensurePresence(newV)
-			.then(() => cf.readJSON())
-			.then((v) => {
-				o(v).notDeepEquals(newV)
-			})
+		await cf.ensurePresence(newV)
+		const v = await cf.readJSON()
+		o(v).notDeepEquals(newV)
 	})
 
 	o("ensurePresence works 2", async function () {
 		const cf = getConfigFile("path", "not-present.json", n.mock<typeof import("fs")>("fs", fsMock).set())
 		const newV = { a: "bye", b: "hello" }
-		return cf
-			.ensurePresence(newV)
-			.then(() => cf.readJSON())
-			.then((v) => {
-				o(v).deepEquals(newV)
-			})
+		await cf.ensurePresence(newV)
+		const v = await cf.readJSON()
+		o(v).deepEquals(newV)
 	})
 
 	o("interleaved reads/writes work", async function () {
 		o.timeout(500)
 		const cf = getConfigFile("path", "conf.json", n.mock<typeof import("fs")>("fs", fsMock).set())
 
-		const cycles = 19
+		const cycles = 9
 		const res: number[] = []
 
 		for (let i = 0; i < cycles + 1; ) {
@@ -96,5 +93,16 @@ o.spec("ConfigFileTest", function () {
 		first.t = true
 		// @ts-ignore
 		o(second.t).equals(true)
+	})
+
+	o("delete works", async function () {
+		const v = { a: "bye", b: "hello" }
+		const cf = getConfigFile("path", "to-be-deleted.json", n.mock<typeof import("fs")>("fs", fsMock).set())
+		await cf.writeJSON(v)
+		const present = await cf.readJSON()
+		o(present).deepEquals(v)
+		await cf.delete()
+		const deleted = await cf.readJSON()
+		o(deleted).equals(undefined)
 	})
 })

@@ -1,0 +1,72 @@
+{
+	"name": "NativeMailImportFacade",
+	"type": "facade",
+	"senders": ["web"],
+	"receivers": ["desktop"],
+	"doc": "Facade implemented by the native desktop client enabling mail imports, both from files, and via IMAP.",
+	"methods": {
+		"getResumableImport": {
+			"doc": "@returns the mail import state id of the import that might be resumed",
+			"arg": [
+				{
+					"mailboxId": "string"
+				},
+				{
+					"targetOwnerGroup": "string"
+				},
+				{
+					"unencryptedTutaCredentials": "UnencryptedCredentials"
+				},
+				{
+					"apiUrl": "string"
+				}
+			],
+			"ret": "IdTuple?"
+		},
+		"prepareNewImport": {
+			"doc": "set up a new import state for the given parameters and return the ID of the new state entity on the server",
+			"arg": [
+				{
+					"mailboxId": "string"
+				},
+				{
+					"targetOwnerGroup": "string"
+				},
+				{
+					"targetMailSet": "List<string>"
+				},
+				{
+					"filePaths": "List<string>"
+				},
+				{
+					"unencryptedTutaCredentials": "UnencryptedCredentials"
+				},
+				{
+					"apiUrl": "string"
+				}
+			],
+			"ret": "IdTuple"
+		},
+		"setProgressAction": {
+			"doc": "Sets progress action for next import iteration",
+			"arg": [
+				{
+					"mailboxId": "string"
+				},
+				{
+					"importProgressAction": "number"
+				}
+			],
+			"ret": "void"
+		},
+		"setAsyncErrorHook": {
+			"doc": "await to receive any errors and import state changes that must be handled locally",
+			"arg": [
+				{
+					"mailboxId": "string"
+				}
+			],
+			"ret": "void"
+		}
+	}
+}

@@ -14,6 +14,7 @@ export {
 	filterNull,
 	last,
 	isEmpty,
+	isNotEmpty,
 	lastThrow,
 	getFirstOrThrow,
 	first,
@@ -41,11 +42,14 @@ export {
 	arrayOf,
 	count,
 	zeroOut,
+	compare,
+	collectToMap,
 } from "./ArrayUtils.js"
 export { AsyncResult } from "./AsyncResult.js"
 export { intersection, trisectingDiff, setAddAll, max, maxBy, findBy, min, minBy, mapWith, mapWithout, setEquals, setMap } from "./CollectionUtils.js"
 export {
 	DAY_IN_MILLIS,
+	YEAR_IN_MILLIS,
 	getStartOfNextDay,
 	getEndOfDay,
 	getStartOfDay,
@@ -84,10 +88,12 @@ export {
 	decodeQuotedPrintable,
 	decodeBase64,
 	stringToBase64,
+	byteArraysToBytes,
+	bytesToByteArrays,
 } from "./Encoding.js"
 export type { Base64, Base64Ext, Base64Url, Hex } from "./Encoding.js"
 export { LazyLoaded } from "./LazyLoaded.js"
-export { mergeMaps, getFromMap, addMapEntry, deleteMapEntry } from "./MapUtils.js"
+export { mergeMaps, getFromMap, addMapEntry, deleteMapEntry, mapMap } from "./MapUtils.js"
 export { pMap } from "./PromiseMap.js"
 export type { Mapper } from "./PromiseMap.js"
 export { mapInCallContext, promiseMap, promiseMapCompat, PromisableWrapper, delay, tap, ofClass, promiseFilter, settledThen } from "./PromiseUtils.js"
@@ -149,8 +155,22 @@ export {
 	Require,
 	memoizedWithHiddenArgument,
 	BoundedExecutor,
+	freshVersioned,
+	isKeyVersion,
 } from "./Utils.js"
-export type { Callback, DeferredObject, lazy, lazyAsync, Thunk, DeferredObjectWithHandler, MaybeLazy, TimeoutSetter, ErrorInfo } from "./Utils.js"
+export type {
+	Callback,
+	DeferredObject,
+	lazy,
+	lazyAsync,
+	Thunk,
+	DeferredObjectWithHandler,
+	MaybeLazy,
+	TimeoutSetter,
+	ErrorInfo,
+	Versioned,
+	KeyVersion,
+} from "./Utils.js"
 
 export {
 	callWebAssemblyFunctionWithArguments,
@@ -163,6 +183,7 @@ export {
 	mutableSecureFree,
 	secureFree,
 	mutable,
+	WASMExports,
 } from "./WebAssembly.js"
 
 export { mod, clamp } from "./MathUtils.js"

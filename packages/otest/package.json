@@ -1,6 +1,6 @@
 {
 	"name": "@tutao/otest",
-	"version": "218.240219.0",
+	"version": "271.250227.0",
 	"license": "GPL-3.0",
 	"description": "little test runner",
 	"main": "./dist/index.js",
@@ -23,7 +23,7 @@
 		"tsconfig.json"
 	],
 	"devDependencies": {
-		"typescript": "5.0.3"
+		"typescript": "5.3.3"
 	},
 	"publishConfig": {
 		"access": "public",

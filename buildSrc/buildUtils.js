@@ -13,7 +13,7 @@ var measureStartTime
 
 /**
  * Returns tutanota app version (as in package.json).
- * @returns {string}
+ * @returns {Promise<string>}
  */
 export async function getTutanotaAppVersion() {
 	const packageJson = JSON.parse(await fs.readFile(path.join(__dirname, "..", "package.json"), "utf8"))
@@ -79,7 +79,7 @@ export async function fileExists(filePath) {
 /**
  * There are various possibilities for how a given platform could be identified
  * We need to make sure to be consistent at certain points, such as when caching files or processing CLI args
- * @param platformName {"mac"|"darwin"|"win"|"win32"|"linux"}
+ * @param platformName {string}
  * @returns {"darwin"|"win32"|"linux"}
  */
 export function getCanonicalPlatformName(platformName) {
@@ -99,9 +99,9 @@ export function getCanonicalPlatformName(platformName) {
 
 /**
  * Checks whether the combination of OS & architecture is supported by the build system
- * @param platformName {"darwin"|"win32"|"linux"}
- * @param architecture {"arm"|"arm64"|"ia32"|"mips"|"mipsel"|"ppc"|"ppc64"|"riscv64"|"s390"|"s390x"|"x64"|"universal"}
- * @returns {boolean}
+ * @param platformName {NodeJS.Platform}
+ * @param architecture {NodeJS.Architecture|"universal"}
+ * @returns {architecture is "x64"|"arm64"|"universal"}
  */
 export function checkArchitectureIsSupported(platformName, architecture) {
 	switch (architecture) {
@@ -115,6 +115,19 @@ export function checkArchitectureIsSupported(platformName, architecture) {
 	}
 }
 
+/**
+ *
+ * @param platformName {NodeJS.Platform}
+ * @param architecture {NodeJS.Architecture|"universal"}
+ * @return {"x64"|"arm64"|"universal"}
+ */
+export function getValidArchitecture(platformName, architecture) {
+	if (!checkArchitectureIsSupported(platformName, architecture)) {
+		throw new Error(`Unsupported architecture: ${platformName} ${architecture}`)
+	}
+	return architecture
+}
+
 export async function runStep(name, cmd) {
 	const before = Date.now()
 	console.log("Build >", name)
@@ -124,4 +137,48 @@ export async function runStep(name, cmd) {
 
 export function writeFile(targetFile, content) {
 	return fs.mkdir(path.dirname(targetFile), { recursive: true }).then(() => fs.writeFile(targetFile, content, "utf-8"))
+}
+
+export function normalizeCopyTarget(target) {
+	return removeNpmNamespacePrefix(changeHypenToUnderscore(target))
+}
+
+export function changeHypenToUnderscore(target) {
+	// because its name is used as a C identifier, the binary produced by better-sqlite3 is called better_sqlite3.node
+	return target.replace("better-sqlite3", "better_sqlite3")
+}
+
+export function removeNpmNamespacePrefix(target) {
+	// linear complexity Array.last(), wth not?
+	// gets us the moduleName out of @tutao/moduleName
+	return target.split("/").reduce((p, c) => c, null)
+}
+
+/**
+ * @param arch {NodeJS.Architecture|"universal"}
+ * @returns {Array<import("./nativeLibraryProvider.js").BuildArch>}
+ */
+export function resolveArch(arch) {
+	if (arch === "universal") {
+		return ["x64", "arm64"]
+	} else if (arch === "x64" || arch === "arm64") {
+		return [arch]
+	} else {
+		throw new Error(`Unsupported arch: ${arch}`)
+	}
+}
+
+/**
+ * napi appends abi to the architecture (see https://napi.rs/docs/cli/napi-config)
+ * @param platform {NodeJS.Platform}
+ * @param architecture {NodeJS.Architecture}
+ */
+export function getTargetTriple(platform, architecture) {
+	if (platform === "linux") {
+		return `${platform}-${architecture}-gnu`
+	} else if (platform === "win32") {
+		return `${platform}-${architecture}-msvc`
+	} else {
+		return `${platform}-${architecture}`
+	}
 }

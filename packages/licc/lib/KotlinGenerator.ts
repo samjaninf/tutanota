@@ -1,4 +1,5 @@
 import {
+	camelCaseToSnakeCase,
 	EnumDefinition,
 	FacadeDefinition,
 	getArgs,
@@ -16,7 +17,7 @@ export class KotlinGenerator implements LangGenerator {
 	generateGlobalDispatcher(name: string, facadeNames: string[]): string {
 		const acc = new Accumulator()
 		KotlinGenerator.generateImports(acc)
-		acc.line(`import de.tutao.tutanota.ipc.*`)
+		acc.line(`import de.tutao.tutashared.ipc.*`)
 		acc.line()
 		acc.line(`class ${name} (`)
 		const methodAcc = acc.indent()
@@ -65,7 +66,7 @@ export class KotlinGenerator implements LangGenerator {
 	}
 
 	private static generateImports(acc: Accumulator) {
-		acc.line("package de.tutao.tutanota.ipc")
+		acc.line("package de.tutao.tutashared.ipc")
 		acc.line()
 		acc.line("import kotlinx.serialization.*")
 		acc.line("import kotlinx.serialization.json.*")
@@ -87,7 +88,7 @@ export class KotlinGenerator implements LangGenerator {
 		const methodAcc = acc.indent()
 		for (const [name, methodDefinition] of Object.entries(definition.methods)) {
 			this.generateDocComment(methodAcc, methodDefinition.doc)
-			KotlinGenerator.generateMethodSignature(methodAcc, name, methodDefinition)
+			KotlinGenerator.generateMethodSignature(methodAcc, name, methodDefinition, "suspend")
 		}
 		acc.line("}")
 		return acc.finish()
@@ -148,7 +149,7 @@ export class KotlinGenerator implements LangGenerator {
 	}
 
 	private static generateMethodSignature(methodGenerator: Accumulator, name: string, methodDefinition: MethodDefinition, prefix: string = "") {
-		methodGenerator.line(`${prefix} suspend fun ${name}(`)
+		methodGenerator.line(`${prefix} fun ${name}(`)
 		const argGenerator = methodGenerator.indent()
 		for (const argument of getArgs(name, methodDefinition)) {
 			const renderedArgument = typeNameKotlin(argument.type)
@@ -168,7 +169,7 @@ export class KotlinGenerator implements LangGenerator {
 		acc.line(`) : ${definition.name} {`)
 		classBodyAcc.line(`private val encodedFacade = json.encodeToString("${definition.name}")`)
 		for (const [methodName, methodDefinition] of Object.entries(definition.methods)) {
-			KotlinGenerator.generateMethodSignature(classBodyAcc, methodName, methodDefinition, "override")
+			KotlinGenerator.generateMethodSignature(classBodyAcc, methodName, methodDefinition, "override suspend")
 			classBodyAcc.line("{")
 
 			const methodBodyAcc = classBodyAcc.indent()
@@ -201,7 +202,7 @@ export class KotlinGenerator implements LangGenerator {
 	generateTypeRef(outDir: string, definitionPath: string, definition: TypeRefDefinition): string | null {
 		if (definition.location.kotlin) {
 			const acc = new Accumulator()
-			acc.line(`package de.tutao.tutanota.ipc`)
+			acc.line(`package de.tutao.tutashared.ipc`)
 			acc.line(`typealias ${definition.name} = ${definition.location.kotlin}`)
 			return acc.finish()
 		} else {
@@ -211,11 +212,40 @@ export class KotlinGenerator implements LangGenerator {
 
 	generateEnum({ name, values, doc }: EnumDefinition): string {
 		return new Accumulator()
+			.do((acc) => KotlinGenerator.generateImports(acc))
 			.do((acc) => this.generateDocComment(acc, doc))
-			.line(`enum class ${name} {`)
-			.indented((acc) => acc.lines(values.map((value) => `${value},`)))
+			.line("@Serializable")
+			.line(`enum class ${name}(val value: String) {`)
+			.indented((acc) => {
+				const finalValue = values.length - 1
+				for (let i = 0; i < finalValue; i++) {
+					acc.line(`@SerialName("${i}")`)
+					acc.line(`${this.formatEnumValue(values[i])}("${i}"),`) // enums are SCREAMING_SNAKE_CASE
+					acc.line()
+				}
+				acc.line(`@SerialName("${finalValue}")`)
+				acc.line(`${this.formatEnumValue(values[finalValue])}("${finalValue}");`)
+				acc.line()
+				acc.line("companion object {")
+				acc.indented((acc) => {
+					KotlinGenerator.generateMethodSignature(acc, "fromValue", { arg: [{ value: "String" }], ret: `${name}?` })
+					acc.indented((acc) => {
+						acc.line("= when (value) {")
+						for (const [index, value] of Object.entries(values)) {
+							acc.line(`"${index}" -> ${this.formatEnumValue(value)}`)
+						}
+						acc.line("else -> null")
+					})
+					acc.line("}")
+				})
+				acc.line("}")
+			})
 			.line("}")
 			.finish()
+	}
+
+	private formatEnumValue(value: string) {
+		return camelCaseToSnakeCase(value).toUpperCase()
 	}
 }
 
@@ -227,19 +257,21 @@ function typeNameKotlin(name: string): RenderedType {
 function renderKotlinType(parsed: ParsedType): RenderedType {
 	const { baseName, nullable, external } = parsed
 	switch (baseName) {
-		case "List":
+		case "List": {
 			const renderedListInner = renderKotlinType(parsed.generics[0])
 			return {
 				externals: renderedListInner.externals,
 				name: maybeNullable(`List<${renderedListInner.name}>`, nullable),
 			}
-		case "Map":
+		}
+		case "Map": {
 			const renderedKey = renderKotlinType(parsed.generics[0])
 			const renderedValue = renderKotlinType(parsed.generics[1])
 			return {
 				externals: [...renderedKey.externals, ...renderedValue.externals],
 				name: maybeNullable(`Map<${renderedKey.name}, ${renderedValue.name}>`, nullable),
 			}
+		}
 		case "string":
 			return { externals: [], name: maybeNullable("String", nullable) }
 		case "boolean":
@@ -250,6 +282,8 @@ function renderKotlinType(parsed: ParsedType): RenderedType {
 			return { externals: [], name: maybeNullable("DataWrapper", nullable) }
 		case "void":
 			return { externals: [], name: maybeNullable("Unit", nullable) }
+		case "IdTuple":
+			return { externals: [], name: maybeNullable("de.tutao.tutashared.IdTuple", nullable) }
 		default:
 			return { externals: [baseName], name: maybeNullable(baseName, nullable) }
 	}

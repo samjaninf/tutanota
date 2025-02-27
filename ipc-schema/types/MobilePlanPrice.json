@@ -1,0 +1,13 @@
+{
+	"name": "MobilePlanPrice",
+	"type": "struct",
+	"fields": {
+		"name": "string",
+		"rawMonthlyPerMonth": "string",
+		"rawYearlyPerYear": "string",
+		"rawYearlyPerMonth": "string",
+		"displayMonthlyPerMonth": "string",
+		"displayYearlyPerYear": "string",
+		"displayYearlyPerMonth": "string"
+	}
+}

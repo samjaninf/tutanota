@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-@testable import tutanota
+@testable import TutanotaSharedFramework
 
 class AlarmModelTest: XCTestCase {
 	private let perAlarmLimit = 5
@@ -59,13 +59,20 @@ class AlarmModelTest: XCTestCase {
 		let alarm = makeAlarm(
 			at: start,
 			trigger: "5M",
-			repeatRule: RepeatRule(frequency: .daily, interval: 1, timeZone: "Europe/Berlin", endCondition: .count(times: 3), excludedDates: [])
+			repeatRule: RepeatRule(
+				frequency: .daily,
+				interval: 1,
+				timeZone: "Europe/Berlin",
+				endCondition: .count(times: 3),
+				excludedDates: [],
+				advancedRules: []
+			)
 		)
 
 		let result = plan(alarms: [alarm])
 
 		XCTAssertEqual(result.count, 3)
-		XCTAssertEqual(result[2].occurrenceNumber, 2)
+		XCTAssertEqual(result[2].occurrenceNumber, 3)
 	}
 
 	func testWhenRepeatedAlarmStartsBeforeNowOnlyFutureOcurrencesArePlanned() {
@@ -73,17 +80,24 @@ class AlarmModelTest: XCTestCase {
 		let alarm = makeAlarm(
 			at: start,
 			trigger: "5M",
-			repeatRule: RepeatRule(frequency: .daily, interval: 1, timeZone: "Europe/Berlin", endCondition: .count(times: 3), excludedDates: [])
+			repeatRule: RepeatRule(
+				frequency: .daily,
+				interval: 1,
+				timeZone: "Europe/Berlin",
+				endCondition: .count(times: 3),
+				excludedDates: [],
+				advancedRules: []
+			)
 		)
 
 		let result = plan(alarms: [alarm])
 
 		XCTAssertEqual(result.count, 2)
-		XCTAssertEqual(result[1].occurrenceNumber, 2)
+		XCTAssertEqual(result[1].occurrenceNumber, 3)
 	}
 
 	func testWhenMultipleAlarmsArePresentOnlyTheNewestOccurrencesArePlanned() {
-		let repeatRule = RepeatRule(frequency: .daily, interval: 1, timeZone: "Europe/Berlin", endCondition: .never, excludedDates: [])
+		let repeatRule = RepeatRule(frequency: .daily, interval: 1, timeZone: "Europe/Berlin", endCondition: .never, excludedDates: [], advancedRules: [])
 
 		let alarm1 = makeAlarm(at: dateProvider.now.advanced(by: 10, .minutes), trigger: "5M", repeatRule: repeatRule, identifier: "alarm1")
 		let alarm2 = makeAlarm(at: dateProvider.now.advanced(by: 20, .minutes), trigger: "5M", repeatRule: repeatRule, identifier: "alarm2")
@@ -105,7 +119,7 @@ class AlarmModelTest: XCTestCase {
 		let eventStart = date(2019, 6, 2, 12, timeZone)
 		let eventEnd = date(2019, 6, 2, 12, timeZone)
 
-		let repeatRule = RepeatRule(frequency: .weekly, interval: 1, timeZone: timeZone, endCondition: .never, excludedDates: [])
+		let repeatRule = RepeatRule(frequency: .weekly, interval: 1, timeZone: timeZone, endCondition: .never, excludedDates: [], advancedRules: [])
 
 		let seq = alarmModel.futureOccurrences(
 			ofAlarm: AlarmNotification(
@@ -124,6 +138,43 @@ class AlarmModelTest: XCTestCase {
 		XCTAssertEqual(occurrences, expected)
 	}
 
+	func testIteratedRepeatAlarmWithByRule() {
+		let timeZone = "Europe/Berlin"
+		dateProvider.timeZone = TimeZone(identifier: timeZone)!
+		dateProvider.now = date(2025, 2, 1, 10, timeZone)
+
+		let eventStart = date(2025, 2, 2, 12, timeZone)
+		let eventEnd = date(2025, 2, 2, 15, timeZone)
+
+		let repeatRule = RepeatRule(
+			frequency: .weekly,
+			interval: 1,
+			timeZone: timeZone,
+			endCondition: .never,
+			excludedDates: [],
+			advancedRules: [AdvancedRule(ruleType: ByRuleType.byday, interval: "MO"), AdvancedRule(ruleType: ByRuleType.byday, interval: "TU")]
+		)
+
+		let seq = alarmModel.futureOccurrences(
+			ofAlarm: AlarmNotification(
+				operation: .Create,
+				summary: "summary",
+				eventStart: eventStart,
+				eventEnd: eventEnd,
+				alarmInfo: AlarmInfo(alarmIdentifer: "id", trigger: AlarmInterval(unit: .hour, value: 1)),
+				repeatRule: repeatRule,
+				user: "user"
+			)
+		)
+		let occurrences = prefix(seq: seq, 5).map { $0.eventOccurrenceTime }
+
+		let expected = [
+			date(2025, 2, 2, 12, timeZone), date(2025, 2, 3, 12, timeZone), date(2025, 2, 4, 12, timeZone), date(2025, 2, 10, 12, timeZone),
+			date(2025, 2, 11, 12, timeZone),
+		]
+		XCTAssertEqual(occurrences, expected)
+	}
+
 	func testIteratedRepeatAlarmWithExclusions() {
 		let timeZone = "Europe/Berlin"
 		dateProvider.timeZone = TimeZone(identifier: timeZone)!
@@ -137,7 +188,8 @@ class AlarmModelTest: XCTestCase {
 			interval: 1,
 			timeZone: timeZone,
 			endCondition: .never, /* this is excluded       this is ignored */
-			excludedDates: [date(2019, 6, 9, 12, timeZone), date(2019, 6, 10, 12, timeZone)]
+			excludedDates: [date(2019, 6, 9, 12, timeZone), date(2019, 6, 10, 12, timeZone)],
+			advancedRules: []
 		)
 
 		let seq = alarmModel.futureOccurrences(
@@ -163,10 +215,17 @@ class AlarmModelTest: XCTestCase {
 		dateProvider.now = date(2019, 4, 20, 0, timeZone)
 
 		let repeatRuleTimeZone = "Asia/Anadyr"
-		let eventStart = allDayUTCDate(fromLocalDate: date(2019, 5, 1, 0, timeZone))
-		let eventEnd = allDayUTCDate(fromLocalDate: date(2019, 5, 2, 0, timeZone))
-		let repeatEnd = allDayUTCDate(fromLocalDate: date(2019, 5, 3, 0, timeZone))
-		let repeatRule = RepeatRule(frequency: .daily, interval: 1, timeZone: repeatRuleTimeZone, endCondition: .untilDate(date: repeatEnd), excludedDates: [])
+		let eventStart = allDayUTCDate(fromLocalDate: date(2019, 5, 1, 0, timeZone), inTimeZone: timeZone)
+		let eventEnd = allDayUTCDate(fromLocalDate: date(2019, 5, 2, 0, timeZone), inTimeZone: timeZone)
+		let repeatEnd = allDayUTCDate(fromLocalDate: date(2019, 5, 3, 0, timeZone), inTimeZone: timeZone)
+		let repeatRule = RepeatRule(
+			frequency: .daily,
+			interval: 1,
+			timeZone: repeatRuleTimeZone,
+			endCondition: .untilDate(date: repeatEnd),
+			excludedDates: [],
+			advancedRules: []
+		)
 
 		let seq: any Sequence<AlarmOccurence> = alarmModel.futureOccurrences(
 			ofAlarm: AlarmNotification(

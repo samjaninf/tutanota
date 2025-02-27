@@ -5,24 +5,24 @@ import {
 	InternalServerError,
 	NotAuthorizedError,
 	PayloadTooLargeError,
-} from "../../../../../src/api/common/error/RestError.js"
+} from "../../../../../src/common/api/common/error/RestError.js"
 import { assertThrows } from "@tutao/tutanota-test-utils"
-import { SetupMultipleError } from "../../../../../src/api/common/error/SetupMultipleError.js"
-import { HttpMethod, MediaType, resolveTypeReference } from "../../../../../src/api/common/EntityFunctions.js"
-import { CustomerTypeRef } from "../../../../../src/api/entities/sys/TypeRefs.js"
-import { doBlobRequestWithRetry, EntityRestClient, tryServers, typeRefToPath } from "../../../../../src/api/worker/rest/EntityRestClient.js"
-import { RestClient } from "../../../../../src/api/worker/rest/RestClient.js"
-import type { CryptoFacade } from "../../../../../src/api/worker/crypto/CryptoFacade.js"
-import { InstanceMapper } from "../../../../../src/api/worker/crypto/InstanceMapper.js"
+import { SetupMultipleError } from "../../../../../src/common/api/common/error/SetupMultipleError.js"
+import { HttpMethod, MediaType, resolveTypeReference } from "../../../../../src/common/api/common/EntityFunctions.js"
+import { CustomerServerPropertiesTypeRef, CustomerTypeRef } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
+import { doBlobRequestWithRetry, EntityRestClient, tryServers, typeRefToPath } from "../../../../../src/common/api/worker/rest/EntityRestClient.js"
+import { RestClient } from "../../../../../src/common/api/worker/rest/RestClient.js"
+import type { CryptoFacade } from "../../../../../src/common/api/worker/crypto/CryptoFacade.js"
+import { InstanceMapper } from "../../../../../src/common/api/worker/crypto/InstanceMapper.js"
 import { func, instance, matchers, object, verify, when } from "testdouble"
-import tutanotaModelInfo from "../../../../../src/api/entities/tutanota/ModelInfo.js"
-import sysModelInfo from "../../../../../src/api/entities/sys/ModelInfo.js"
-import { AuthDataProvider } from "../../../../../src/api/worker/facades/UserFacade.js"
-import { LoginIncompleteError } from "../../../../../src/api/common/error/LoginIncompleteError.js"
-import { BlobServerAccessInfoTypeRef, BlobServerUrlTypeRef } from "../../../../../src/api/entities/storage/TypeRefs.js"
-import { Mapper, ofClass } from "@tutao/tutanota-utils"
-import { ProgrammingError } from "../../../../../src/api/common/error/ProgrammingError.js"
-import { BlobAccessTokenFacade } from "../../../../../src/api/worker/facades/BlobAccessTokenFacade.js"
+import tutanotaModelInfo from "../../../../../src/common/api/entities/tutanota/ModelInfo.js"
+import sysModelInfo from "../../../../../src/common/api/entities/sys/ModelInfo.js"
+import { AuthDataProvider } from "../../../../../src/common/api/worker/facades/UserFacade.js"
+import { LoginIncompleteError } from "../../../../../src/common/api/common/error/LoginIncompleteError.js"
+import { BlobServerAccessInfoTypeRef, BlobServerUrlTypeRef } from "../../../../../src/common/api/entities/storage/TypeRefs.js"
+import { freshVersioned, Mapper, ofClass } from "@tutao/tutanota-utils"
+import { ProgrammingError } from "../../../../../src/common/api/common/error/ProgrammingError.js"
+import { BlobAccessTokenFacade } from "../../../../../src/common/api/worker/facades/BlobAccessTokenFacade.js"
 import {
 	CalendarEventTypeRef,
 	Contact,
@@ -30,10 +30,10 @@ import {
 	InternalRecipientKeyDataTypeRef,
 	MailDetailsBlob,
 	MailDetailsBlobTypeRef,
-} from "../../../../../src/api/entities/tutanota/TypeRefs.js"
-import { DateProvider } from "../../../../../src/api/common/DateProvider.js"
-import { DefaultDateProvider } from "../../../../../src/calendar/date/CalendarUtils.js"
+} from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { DateProvider } from "../../../../../src/common/api/common/DateProvider.js"
 import { createTestEntity } from "../../../TestUtils.js"
+import { DefaultDateProvider } from "../../../../../src/common/calendar/date/CalendarUtils.js"
 
 const { anything, argThat } = matchers
 
@@ -125,11 +125,17 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(tutanotaModelInfo.version) },
 					responseType: MediaType.Json,
 					queryParams: undefined,
+					baseUrl: undefined,
 				}),
 			).thenResolve(JSON.stringify({ instance: "calendar" }))
 
 			const result = await entityRestClient.load(CalendarEventTypeRef, [calendarListId, id1])
-			o(result as any).deepEquals({ instance: "calendar", decrypted: true, migrated: true, migratedForInstance: true })
+			o(result as any).deepEquals({
+				instance: "calendar",
+				decrypted: true,
+				migrated: true,
+				migratedForInstance: true,
+			})
 		})
 
 		o("loading an element ", async function () {
@@ -139,11 +145,17 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					responseType: MediaType.Json,
 					queryParams: undefined,
+					baseUrl: undefined,
 				}),
 			).thenResolve(JSON.stringify({ instance: "customer" }))
 
 			const result = await entityRestClient.load(CustomerTypeRef, id1)
-			o(result as any).deepEquals({ instance: "customer", decrypted: true, migrated: true, migratedForInstance: true })
+			o(result as any).deepEquals({
+				instance: "customer",
+				decrypted: true,
+				migrated: true,
+				migratedForInstance: true,
+			})
 		})
 
 		o("query parameters and additional headers + access token and version are always passed to the rest client", async function () {
@@ -154,10 +166,14 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(tutanotaModelInfo.version), baz: "quux" },
 					responseType: MediaType.Json,
 					queryParams: { foo: "bar" },
+					baseUrl: undefined,
 				}),
 			).thenResolve(JSON.stringify({ instance: "calendar" }))
 
-			await entityRestClient.load(CalendarEventTypeRef, [calendarListId, id1], { foo: "bar" }, { baz: "quux" })
+			await entityRestClient.load(CalendarEventTypeRef, [calendarListId, id1], {
+				queryParams: { foo: "bar" },
+				extraHeaders: { baz: "quux" },
+			})
 		})
 
 		o("when loading encrypted instance and not being logged in it throws an error", async function () {
@@ -174,19 +190,25 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(tutanotaModelInfo.version) },
 					responseType: MediaType.Json,
 					queryParams: undefined,
+					baseUrl: undefined,
 				}),
-			).thenResolve(JSON.stringify({ instance: "calendar" }))
+			).thenResolve(JSON.stringify({ _ownerEncSessionKey: "some key" }))
 
 			const ownerKey = [1, 2, 3]
 			const sessionKey = [3, 2, 1]
 			when(cryptoFacadeMock.resolveSessionKeyWithOwnerKey(anything(), ownerKey)).thenReturn(sessionKey)
 
-			const result = await entityRestClient.load(CalendarEventTypeRef, [calendarListId, id1], undefined, undefined, ownerKey)
+			const result = await entityRestClient.load(CalendarEventTypeRef, [calendarListId, id1], { ownerKeyProvider: async (_) => ownerKey })
 
 			const typeModel = await resolveTypeReference(CalendarEventTypeRef)
 			verify(instanceMapperMock.decryptAndMapToInstance(typeModel, anything(), sessionKey))
 			verify(cryptoFacadeMock.resolveSessionKey(anything(), anything()), { times: 0 })
-			o(result as any).deepEquals({ instance: "calendar", decrypted: true, migrated: true, migratedForInstance: true })
+			o(result as any).deepEquals({
+				_ownerEncSessionKey: "some key",
+				decrypted: true,
+				migrated: true,
+				migratedForInstance: true,
+			})
 		})
 	})
 
@@ -201,6 +223,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(tutanotaModelInfo.version) },
 					queryParams: { start: startId, count: String(count), reverse: String(false) },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 			).thenResolve(JSON.stringify([{ instance: 1 }, { instance: 2 }]))
 
@@ -229,6 +253,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					queryParams: { ids: "0,1,2,3,4" },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 			).thenResolve(JSON.stringify([{ instance: 1 }, { instance: 2 }]))
 
@@ -250,6 +276,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					queryParams: { ids: ids.join(",") },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 				{ times: 1 },
 			).thenResolve(JSON.stringify([{ instance: 1 }, { instance: 2 }]))
@@ -271,6 +299,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					queryParams: { ids: countFrom(0, 100).join(",") },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 				{ times: 1 },
 			).thenResolve(JSON.stringify([{ instance: 1 }]))
@@ -280,6 +310,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					queryParams: { ids: "100" },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 				{ times: 1 },
 			).thenResolve(JSON.stringify([{ instance: 2 }]))
@@ -299,6 +331,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					queryParams: { ids: countFrom(0, 100).join(",") },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 				{ times: 1 },
 			).thenResolve(JSON.stringify([{ instance: 1 }]))
@@ -308,6 +342,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					queryParams: { ids: countFrom(100, 100).join(",") },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 				{ times: 1 },
 			).thenResolve(JSON.stringify([{ instance: 2 }]))
@@ -317,6 +353,8 @@ o.spec("EntityRestClient", function () {
 					headers: { ...authHeader, v: String(sysModelInfo.version) },
 					queryParams: { ids: countFrom(200, 11).join(",") },
 					responseType: MediaType.Json,
+					baseUrl: undefined,
+					suspensionBehavior: undefined,
 				}),
 				{ times: 1 },
 			).thenResolve(JSON.stringify([{ instance: 3 }]))
@@ -410,19 +448,31 @@ o.spec("EntityRestClient", function () {
 			when(
 				restClient.request(anything(), HttpMethod.GET, {
 					headers: {},
-					queryParams: { ids: "0,1,2,3,4", ...authHeader, blobAccessToken, v: String(tutanotaModelInfo.version) },
+					queryParams: {
+						ids: "0,1,2,3,4",
+						...authHeader,
+						blobAccessToken,
+						v: String(tutanotaModelInfo.version),
+					},
 					responseType: MediaType.Json,
 					noCORS: true,
 					baseUrl: firstServer,
+					suspensionBehavior: undefined,
 				}),
 			).thenReject(new ConnectionError("test connection error for retry"))
 			when(
 				restClient.request(anything(), HttpMethod.GET, {
 					headers: {},
-					queryParams: { ids: "0,1,2,3,4", ...authHeader, blobAccessToken, v: String(tutanotaModelInfo.version) },
+					queryParams: {
+						ids: "0,1,2,3,4",
+						...authHeader,
+						blobAccessToken,
+						v: String(tutanotaModelInfo.version),
+					},
 					responseType: MediaType.Json,
 					noCORS: true,
 					baseUrl: otherServer,
+					suspensionBehavior: undefined,
 				}),
 			).thenResolve(JSON.stringify([{ instance: 1 }, { instance: 2 }]))
 
@@ -521,26 +571,28 @@ o.spec("EntityRestClient", function () {
 		})
 
 		o("when ownerKey is passed it is used instead for session key resolution", async function () {
-			const typeModel = await resolveTypeReference(CustomerTypeRef)
+			const typeModel = await resolveTypeReference(CustomerServerPropertiesTypeRef)
 			const v = typeModel.version
-			const newCustomer = createTestEntity(CustomerTypeRef)
+			const newCustomerServerProperties = createTestEntity(CustomerServerPropertiesTypeRef, {
+				_ownerEncSessionKey: new Uint8Array([4, 5, 6]),
+			})
 			const resultId = "id"
 			when(
-				restClient.request(`/rest/sys/customer`, HttpMethod.POST, {
+				restClient.request(`/rest/sys/customerserverproperties`, HttpMethod.POST, {
 					baseUrl: undefined,
 					headers: { ...authHeader, v },
 					queryParams: undefined,
 					responseType: MediaType.Json,
-					body: JSON.stringify({ ...newCustomer, encrypted: true }),
+					body: JSON.stringify({ ...newCustomerServerProperties, encrypted: true }),
 				}),
 				{ times: 1 },
 			).thenResolve(JSON.stringify({ generatedId: resultId }))
 
-			const ownerKey = [1, 2, 3]
+			const ownerKey = freshVersioned([1, 2, 3])
 			const sessionKey = [3, 2, 1]
-			when(cryptoFacadeMock.setNewOwnerEncSessionKey(typeModel, anything(), ownerKey)).thenReturn(sessionKey)
+			when(cryptoFacadeMock.setNewOwnerEncSessionKey(typeModel, anything(), ownerKey)).thenResolve(sessionKey)
 
-			const result = await entityRestClient.setup(null, newCustomer, undefined, { ownerKey })
+			const result = await entityRestClient.setup(null, newCustomerServerProperties, undefined, { ownerKey })
 
 			verify(instanceMapperMock.encryptAndMapToLiteral(anything(), anything(), sessionKey))
 			verify(cryptoFacadeMock.resolveSessionKey(anything(), anything()), { times: 0 })
@@ -811,23 +863,31 @@ o.spec("EntityRestClient", function () {
 		})
 
 		o("when ownerKey is passed it is used instead for session key resolution", async function () {
-			const typeModel = await resolveTypeReference(CustomerTypeRef)
+			const typeModel = await resolveTypeReference(CustomerServerPropertiesTypeRef)
 			const version = typeModel.version
-			const newCustomer = createTestEntity(CustomerTypeRef, {
+			const ownerKeyVersion = 2
+			const newCustomerServerProperties = createTestEntity(CustomerServerPropertiesTypeRef, {
 				_id: "id",
+				_ownerEncSessionKey: new Uint8Array([4, 5, 6]),
+				_ownerKeyVersion: String(ownerKeyVersion),
 			})
 			when(
-				restClient.request("/rest/sys/customer/id", HttpMethod.PUT, {
+				restClient.request("/rest/sys/customerserverproperties/id", HttpMethod.PUT, {
 					headers: { ...authHeader, v: version },
-					body: JSON.stringify({ ...newCustomer, encrypted: true }),
+					body: JSON.stringify({ ...newCustomerServerProperties, encrypted: true }),
 				}),
 			)
 
-			const ownerKey = [1, 2, 3]
+			const ownerKey = freshVersioned([1, 2, 3])
 			const sessionKey = [3, 2, 1]
-			when(cryptoFacadeMock.resolveSessionKeyWithOwnerKey(anything(), ownerKey)).thenReturn(sessionKey)
+			when(cryptoFacadeMock.resolveSessionKeyWithOwnerKey(anything(), ownerKey.object)).thenReturn(sessionKey)
 
-			await entityRestClient.update(newCustomer, ownerKey)
+			await entityRestClient.update(newCustomerServerProperties, {
+				ownerKeyProvider: async (version) => {
+					o(version).equals(ownerKeyVersion)
+					return ownerKey.object
+				},
+			})
 
 			verify(instanceMapperMock.encryptAndMapToLiteral(anything(), anything(), sessionKey))
 			verify(cryptoFacadeMock.resolveSessionKey(anything(), anything()), { times: 0 })

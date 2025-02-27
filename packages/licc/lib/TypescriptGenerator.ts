@@ -169,7 +169,7 @@ export class TypescriptGenerator implements LangGenerator {
 		return new Accumulator()
 			.do((acc) => this.generateDocComment(acc, doc))
 			.line(`export const enum ${name} {`)
-			.indented((acc) => acc.lines(values.map((value, index) => `${value} = ${index},`)))
+			.indented((acc) => acc.lines(values.map((value, index) => `${value} = "${index}",`)))
 			.line("}")
 			.finish()
 	}
@@ -178,19 +178,21 @@ export class TypescriptGenerator implements LangGenerator {
 function renderTypescriptType(parsed: ParsedType): RenderedType {
 	const { baseName, nullable, external } = parsed
 	switch (baseName) {
-		case "List":
+		case "List": {
 			const renderedListInner = renderTypescriptType(parsed.generics[0])
 			return {
 				externals: renderedListInner.externals,
 				name: maybeNullable(`ReadonlyArray<${renderedListInner.name}>`, nullable),
 			}
-		case "Map":
+		}
+		case "Map": {
 			const renderedKey = renderTypescriptType(parsed.generics[0])
 			const renderedValue = renderTypescriptType(parsed.generics[1])
 			return {
 				externals: [...renderedKey.externals, ...renderedValue.externals],
 				name: maybeNullable(`Record<${renderedKey.name}, ${renderedValue.name}>`, nullable),
 			}
+		}
 		case "string":
 			return { externals: [], name: maybeNullable("string", nullable) }
 		case "boolean":
@@ -201,6 +203,8 @@ function renderTypescriptType(parsed: ParsedType): RenderedType {
 			return { externals: [], name: maybeNullable("Uint8Array", nullable) }
 		case "void":
 			return { externals: [], name: maybeNullable("void", nullable) }
+		case "IdTuple":
+			return { externals: [], name: maybeNullable("IdTuple", nullable) }
 		default:
 			return { externals: [baseName], name: maybeNullable(baseName, nullable) }
 	}

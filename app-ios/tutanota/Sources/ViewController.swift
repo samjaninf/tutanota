@@ -1,8 +1,12 @@
 import AuthenticationServices
 import DictionaryCoding
+import TutanotaSharedFramework
 import UIKit
 import UserNotifications
 import WebKit
+
+public let OPEN_CONTACT_EDITOR_CONTACT_ID = "contactId"
+public let OPEN_SETTINGS = "settings"
 
 /// Main screen of the app.
 class ViewController: UIViewController, WKNavigationDelegate, UIScrollViewDelegate {
@@ -17,7 +21,7 @@ class ViewController: UIViewController, WKNavigationDelegate, UIScrollViewDelega
 	private var isDarkTheme = false
 
 	init(
-		crypto: IosNativeCryptoFacade,
+		crypto: TutanotaSharedFramework.IosNativeCryptoFacade,
 		themeManager: ThemeManager,
 		keychainManager: KeychainManager,
 		notificationStorage: NotificationStorage,
@@ -25,8 +29,10 @@ class ViewController: UIViewController, WKNavigationDelegate, UIScrollViewDelega
 		notificaionsHandler: NotificationsHandler,
 		credentialsEncryption: IosNativeCredentialsFacade,
 		blobUtils: BlobUtil,
-		contactsSynchronization: ContactsSynchronization
+		contactsSynchronization: IosMobileContactsFacade,
+		userPreferencesProvider: UserPreferencesProvider
 	) {
+
 		self.themeManager = themeManager
 		self.alarmManager = alarmManager
 		self.notificationsHandler = notificaionsHandler
@@ -69,8 +75,11 @@ class ViewController: UIViewController, WKNavigationDelegate, UIScrollViewDelega
 			keychainManager: keychainManager,
 			webAuthnFacade: IosWebauthnFacade(viewController: self),
 			sqlCipherFacade: self.sqlCipherFacade,
-			contactsSynchronization: contactsSynchronization
+			contactsSynchronization: contactsSynchronization,
+			userPreferencesProvider: userPreferencesProvider,
+			externalCalendarFacade: ExternalCalendarFacadeImpl()
 		)
+
 	}
 
 	required init?(coder: NSCoder) { fatalError("Not NSCodable") }
@@ -218,6 +227,12 @@ class ViewController: UIViewController, WKNavigationDelegate, UIScrollViewDelega
 		return readSharingInfo(infoLocation: infoLocation)
 	}
 
+	private func getInteropInfo(url: URL) async -> URLQueryItem? {
+		guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+
+		return components.queryItems?.first(where: { $0.name == OPEN_CONTACT_EDITOR_CONTACT_ID || $0.name == OPEN_SETTINGS })
+	}
+
 	func handleShare(_ url: URL) async throws {
 		guard let info = await getSharingInfo(url: url) else {
 			TUTSLog("unable to get sharingInfo from url: \(url)")
@@ -227,6 +242,34 @@ class ViewController: UIViewController, WKNavigationDelegate, UIScrollViewDelega
 		do { try await self.bridge.commonNativeFacade.createMailEditor(info.fileUrls.map { $0.path }, info.text, [], "", "") } catch {
 			TUTSLog("failed to open mail editor to share: \(error)")
 			try FileUtils.deleteSharedStorage(subDir: info.identifier)
+		}
+	}
+
+	func handleInterop(_ url: URL) async throws {
+		guard let info = await getInteropInfo(url: url) else {
+			TUTSLog("unable to get sharingInfo from url: \(url)")
+			return
+		}
+
+		switch info.name {
+		case OPEN_CONTACT_EDITOR_CONTACT_ID:
+			do { try await self.bridge.commonNativeFacade.openContactEditor(info.value!) } catch { TUTSLog("failed to open contact editor: \(error)") }
+		case OPEN_SETTINGS: do { try await self.bridge.commonNativeFacade.openSettings(info.value!) } catch { TUTSLog("failed to open settings: \(error)") }
+		default: throw TutanotaError(message: "Invalid interop operation")
+		}
+	}
+
+	func handleOpenNotification(userId: String, address: String, mailId: (String, String)) {
+		// Will be formatted as "<domain>/mail<requestedPath>" in TypeScript code
+		//
+		// requestedPath is /listId/elementId
+		let mailid = "\(mailId.0),\(mailId.1)"
+		let requestedPath = "?mail=\(mailid.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!)"
+
+		Task(priority: .userInitiated) {
+			do { try await self.bridge.commonNativeFacade.openMailBox(userId, address, requestedPath) } catch {
+				TUTSLog("Failed to open mail: \(requestedPath) from notification: \(error)")
+			}
 		}
 	}
 

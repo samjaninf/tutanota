@@ -1,14 +1,13 @@
 import o from "@tutao/otest"
-import { asPaymentInterval, formatMonthlyPrice, formatPrice, PaymentInterval, PriceAndConfigProvider } from "../../../src/subscription/PriceUtils.js"
+import { asPaymentInterval, formatMonthlyPrice, formatPrice, PaymentInterval, PriceAndConfigProvider } from "../../../src/common/subscription/PriceUtils.js"
 import { clone } from "@tutao/tutanota-utils"
-import { UpgradePriceType } from "../../../src/subscription/FeatureListProvider"
-import { lang } from "../../../src/misc/LanguageViewModel"
-import en from "../../../src/translations/en"
-import { ProgrammingError } from "../../../src/api/common/error/ProgrammingError.js"
+import { UpgradePriceType } from "../../../src/common/subscription/FeatureListProvider"
+import { lang } from "../../../src/common/misc/LanguageViewModel"
+import en from "../../../src/mail-app/translations/en"
+import { ProgrammingError } from "../../../src/common/api/common/error/ProgrammingError.js"
 import { createUpgradePriceServiceMock, PLAN_PRICES } from "./priceTestUtils.js"
-import { PlanType } from "../../../src/api/common/TutanotaConstants.js"
-import { UserError } from "../../../src/api/main/UserError.js"
-import { createTestEntity } from "../TestUtils.js"
+import { PlanType } from "../../../src/common/api/common/TutanotaConstants.js"
+import { UserError } from "../../../src/common/api/main/UserError.js"
 
 o.spec("PriceUtilsTest", function () {
 	o.before(async function () {
@@ -19,7 +18,7 @@ o.spec("PriceUtilsTest", function () {
 	o("getSubscriptionPrice premium yearly price", async function () {
 		// the return value is not rounded, but formatPrice handles that
 		const provider = await initPriceAndConfigProvider()
-		o(formatPrice(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanReferencePrice), false)).equals("14.40")
+		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanReferencePrice)).equals(12)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanActualPrice)).equals(12)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.AdditionalUserPrice)).equals(12)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanNextYearsPrice)).equals(12)
@@ -36,7 +35,7 @@ o.spec("PriceUtilsTest", function () {
 		discountPlanPrices.Premium.firstYearDiscount = "12"
 		const priceServiceMock = createUpgradePriceServiceMock(discountPlanPrices)
 		const provider = await PriceAndConfigProvider.getInitializedInstance(null, priceServiceMock, null)
-		o(formatPrice(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanReferencePrice), false)).equals("14.40")
+		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanReferencePrice)).equals(12)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanActualPrice)).equals(0)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.AdditionalUserPrice)).equals(12)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Premium, UpgradePriceType.PlanNextYearsPrice)).equals(12)
@@ -46,7 +45,7 @@ o.spec("PriceUtilsTest", function () {
 		discountPlanPrices.Pro.firstYearDiscount = "84"
 		const priceServiceMock = createUpgradePriceServiceMock(discountPlanPrices)
 		const provider = await PriceAndConfigProvider.getInitializedInstance(null, priceServiceMock, null)
-		o(formatPrice(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Pro, UpgradePriceType.PlanReferencePrice), false)).equals("100.80")
+		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Pro, UpgradePriceType.PlanReferencePrice)).equals(84)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Pro, UpgradePriceType.PlanActualPrice)).equals(0)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Pro, UpgradePriceType.AdditionalUserPrice)).equals(48)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Pro, UpgradePriceType.PlanNextYearsPrice)).equals(84)
@@ -78,7 +77,7 @@ o.spec("PriceUtilsTest", function () {
 		discountPlanPrices.Revolutionary.firstYearDiscount = "36"
 		const priceServiceMock = createUpgradePriceServiceMock(discountPlanPrices)
 		const provider = await PriceAndConfigProvider.getInitializedInstance(null, priceServiceMock, null)
-		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Revolutionary, UpgradePriceType.PlanReferencePrice)).equals(43.2)
+		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Revolutionary, UpgradePriceType.PlanReferencePrice)).equals(36)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Revolutionary, UpgradePriceType.PlanActualPrice)).equals(0)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Revolutionary, UpgradePriceType.AdditionalUserPrice)).equals(36)
 		o(provider.getSubscriptionPrice(PaymentInterval.Yearly, PlanType.Revolutionary, UpgradePriceType.PlanNextYearsPrice)).equals(36)

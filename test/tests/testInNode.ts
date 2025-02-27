@@ -16,7 +16,7 @@ globalThis.browser = () => noOp
 globalThis.node = (func) => func
 
 const { JSDOM } = await import("jsdom")
-var dom = new JSDOM("", {
+const dom = new JSDOM("", {
 	// So we can get `requestAnimationFrame`
 	pretendToBeVisual: true,
 })
@@ -27,7 +27,7 @@ dom.reconfigure({ url: "http://tutanota.com" })
 globalThis.window.getElementsByTagName = function () {} // for styles.js
 globalThis.window.document.addEventListener = function () {}
 globalThis.document = globalThis.window.document
-globalThis.navigator = globalThis.window.navigator
+// globalThis.navigator = globalThis.window.navigator
 const local = {}
 globalThis.localStorage = {
 	getItem: (key) => local[key],

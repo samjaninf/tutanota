@@ -1,23 +1,17 @@
-import {
-	Aes128Key,
-	Aes256Key,
-	aesDecrypt,
-	aesEncrypt,
-	getKeyLengthBytes,
-	KEY_LENGTH_BYTES_AES_128,
-	KEY_LENGTH_BYTES_AES_256,
-	unauthenticatedAesDecrypt,
-} from "./Aes.js"
+import type { Aes256Key, AesKey } from "./Aes.js"
+import { aesDecrypt, aesEncrypt, getKeyLengthBytes, KEY_LENGTH_BYTES_AES_128, KEY_LENGTH_BYTES_AES_256, unauthenticatedAesDecrypt } from "./Aes.js"
 import { bitArrayToUint8Array, fixedIv, uint8ArrayToBitArray } from "../misc/Utils.js"
 import { assertNotNull, concat, hexToUint8Array, uint8ArrayToHex } from "@tutao/tutanota-utils"
 import { hexToRsaPrivateKey, hexToRsaPublicKey, rsaPrivateKeyToHex } from "./Rsa.js"
 import type { RsaEccKeyPair, RsaKeyPair, RsaPrivateKey } from "./RsaKeyPair.js"
-import { bytesToKyberPrivateKey, bytesToKyberPublicKey } from "./Liboqs/KyberKeyPair.js"
+import { bytesToKyberPrivateKey, bytesToKyberPublicKey, KyberPrivateKey, kyberPrivateKeyToBytes } from "./Liboqs/KyberKeyPair.js"
 import { EccPrivateKey } from "./Ecc.js"
 import { AsymmetricKeyPair, KeyPairType } from "./AsymmetricKeyPair.js"
 import type { PQKeyPairs } from "./PQKeyPairs.js"
 
-export type EncryptedKeyPairs = {
+export type EncryptedKeyPairs = EncryptedPqKeyPairs | EncryptedRsaKeyPairs | EncryptedRsaEccKeyPairs
+
+export type AbstractEncryptedKeyPair = {
 	pubEccKey: null | Uint8Array
 	pubKyberKey: null | Uint8Array
 	pubRsaKey: null | Uint8Array
@@ -26,7 +20,45 @@ export type EncryptedKeyPairs = {
 	symEncPrivRsaKey: null | Uint8Array
 }
 
-export function encryptKey(encryptionKey: Aes128Key | Aes256Key, keyToBeEncrypted: Aes128Key | Aes256Key): Uint8Array {
+export type EncryptedPqKeyPairs = {
+	pubEccKey: Uint8Array
+	pubKyberKey: Uint8Array
+	pubRsaKey: null
+	symEncPrivEccKey: Uint8Array
+	symEncPrivKyberKey: Uint8Array
+	symEncPrivRsaKey: null
+}
+
+export type EncryptedRsaKeyPairs = {
+	pubEccKey: null
+	pubKyberKey: null
+	pubRsaKey: Uint8Array
+	symEncPrivEccKey: null
+	symEncPrivKyberKey: null
+	symEncPrivRsaKey: Uint8Array
+}
+
+export type EncryptedRsaEccKeyPairs = {
+	pubEccKey: Uint8Array
+	pubKyberKey: null
+	pubRsaKey: Uint8Array
+	symEncPrivEccKey: Uint8Array
+	symEncPrivKyberKey: null
+	symEncPrivRsaKey: Uint8Array
+}
+
+export function isEncryptedPqKeyPairs(keyPair: AbstractEncryptedKeyPair): keyPair is EncryptedPqKeyPairs {
+	return (
+		keyPair.pubEccKey != null &&
+		keyPair.pubKyberKey != null &&
+		keyPair.symEncPrivEccKey != null &&
+		keyPair.symEncPrivKyberKey != null &&
+		keyPair.pubRsaKey == null &&
+		keyPair.symEncPrivRsaKey == null
+	)
+}
+
+export function encryptKey(encryptionKey: AesKey, keyToBeEncrypted: AesKey): Uint8Array {
 	const keyLength = getKeyLengthBytes(encryptionKey)
 	if (keyLength === KEY_LENGTH_BYTES_AES_128) {
 		return aesEncrypt(encryptionKey, bitArrayToUint8Array(keyToBeEncrypted), fixedIv, false, false).slice(fixedIv.length)
@@ -37,7 +69,7 @@ export function encryptKey(encryptionKey: Aes128Key | Aes256Key, keyToBeEncrypte
 	}
 }
 
-export function decryptKey(encryptionKey: Aes128Key | Aes256Key, keyToBeDecrypted: Uint8Array): Aes128Key | Aes256Key {
+export function decryptKey(encryptionKey: AesKey, keyToBeDecrypted: Uint8Array): AesKey {
 	const keyLength = getKeyLengthBytes(encryptionKey)
 	if (keyLength === KEY_LENGTH_BYTES_AES_128) {
 		return uint8ArrayToBitArray(aesDecrypt(encryptionKey, concat(fixedIv, keyToBeDecrypted), false))
@@ -57,19 +89,27 @@ export function aes256DecryptWithRecoveryKey(encryptionKey: Aes256Key, keyToBeDe
 	}
 }
 
-export function encryptRsaKey(encryptionKey: Aes128Key | Aes256Key, privateKey: RsaPrivateKey, iv?: Uint8Array): Uint8Array {
+export function encryptRsaKey(encryptionKey: AesKey, privateKey: RsaPrivateKey, iv?: Uint8Array): Uint8Array {
 	return aesEncrypt(encryptionKey, hexToUint8Array(rsaPrivateKeyToHex(privateKey)), iv, true, true)
 }
 
-export function encryptEccKey(encryptionKey: Aes128Key | Aes256Key, privateKey: EccPrivateKey): Uint8Array {
+export function encryptEccKey(encryptionKey: AesKey, privateKey: EccPrivateKey): Uint8Array {
 	return aesEncrypt(encryptionKey, privateKey, undefined, true, true) // passing IV as undefined here is fine, as it will generate a new one for each encryption
 }
 
-export function decryptRsaKey(encryptionKey: Aes128Key | Aes256Key, encryptedPrivateKey: Uint8Array): RsaPrivateKey {
+export function encryptKyberKey(encryptionKey: AesKey, privateKey: KyberPrivateKey): Uint8Array {
+	return aesEncrypt(encryptionKey, kyberPrivateKeyToBytes(privateKey)) // passing IV as undefined here is fine, as it will generate a new one for each encryption
+}
+
+export function decryptRsaKey(encryptionKey: AesKey, encryptedPrivateKey: Uint8Array): RsaPrivateKey {
 	return hexToRsaPrivateKey(uint8ArrayToHex(aesDecrypt(encryptionKey, encryptedPrivateKey, true)))
 }
 
-export function decryptKeyPair(encryptionKey: Aes128Key | Aes256Key, keyPair: EncryptedKeyPairs): AsymmetricKeyPair {
+export function decryptKeyPair(encryptionKey: AesKey, keyPair: EncryptedPqKeyPairs): PQKeyPairs
+export function decryptKeyPair(encryptionKey: AesKey, keyPair: EncryptedRsaKeyPairs): RsaKeyPair
+export function decryptKeyPair(encryptionKey: AesKey, keyPair: EncryptedRsaEccKeyPairs): RsaEccKeyPair
+export function decryptKeyPair(encryptionKey: AesKey, keyPair: EncryptedKeyPairs): AsymmetricKeyPair
+export function decryptKeyPair(encryptionKey: AesKey, keyPair: EncryptedKeyPairs): AsymmetricKeyPair {
 	if (keyPair.symEncPrivRsaKey) {
 		return decryptRsaOrRsaEccKeyPair(encryptionKey, keyPair)
 	} else {
@@ -77,7 +117,7 @@ export function decryptKeyPair(encryptionKey: Aes128Key | Aes256Key, keyPair: En
 	}
 }
 
-function decryptRsaOrRsaEccKeyPair(encryptionKey: Aes128Key | Aes256Key, keyPair: EncryptedKeyPairs): RsaKeyPair | RsaEccKeyPair {
+function decryptRsaOrRsaEccKeyPair(encryptionKey: AesKey, keyPair: EncryptedKeyPairs): RsaKeyPair | RsaEccKeyPair {
 	const publicKey = hexToRsaPublicKey(uint8ArrayToHex(assertNotNull(keyPair.pubRsaKey)))
 	const privateKey = hexToRsaPrivateKey(uint8ArrayToHex(aesDecrypt(encryptionKey, keyPair.symEncPrivRsaKey!, true)))
 	if (keyPair.symEncPrivEccKey) {
@@ -96,10 +136,12 @@ function decryptRsaOrRsaEccKeyPair(encryptionKey: Aes128Key | Aes256Key, keyPair
 }
 
 function decryptPQKeyPair(encryptionKey: Aes256Key, keyPair: EncryptedKeyPairs): PQKeyPairs {
-	const eccPublicKey = assertNotNull(keyPair.pubEccKey)
-	const eccPrivateKey = aesDecrypt(encryptionKey, assertNotNull(keyPair.symEncPrivEccKey))
-	const kyberPublicKey = bytesToKyberPublicKey(assertNotNull(keyPair.pubKyberKey))
-	const kyberPrivateKey = bytesToKyberPrivateKey(aesDecrypt(encryptionKey, assertNotNull(keyPair.symEncPrivKyberKey)))
+	const eccPublicKey = assertNotNull(keyPair.pubEccKey, "expected pub ecc key for PQ keypair")
+	const eccPrivateKey = aesDecrypt(encryptionKey, assertNotNull(keyPair.symEncPrivEccKey, "expected priv ecc key for PQ keypair"))
+	const kyberPublicKey = bytesToKyberPublicKey(assertNotNull(keyPair.pubKyberKey, "expected pub kyber key for PQ keypair"))
+	const kyberPrivateKey = bytesToKyberPrivateKey(
+		aesDecrypt(encryptionKey, assertNotNull(keyPair.symEncPrivKyberKey, "expected enc priv kyber key for PQ keypair")),
+	)
 
 	return {
 		keyPairType: KeyPairType.TUTA_CRYPT,

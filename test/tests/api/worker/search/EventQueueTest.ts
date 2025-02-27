@@ -1,12 +1,10 @@
 import o from "@tutao/otest"
-import type { QueuedBatch } from "../../../../../src/api/worker/EventQueue.js"
-import { EventQueue } from "../../../../../src/api/worker/EventQueue.js"
-import type { EntityUpdate } from "../../../../../src/api/entities/sys/TypeRefs.js"
-import { EntityUpdateTypeRef } from "../../../../../src/api/entities/sys/TypeRefs.js"
-import { OperationType } from "../../../../../src/api/common/TutanotaConstants.js"
+import { batchMod, EntityModificationType, EventQueue, QueuedBatch } from "../../../../../src/common/api/worker/EventQueue.js"
+import { EntityUpdate, EntityUpdateTypeRef, GroupTypeRef } from "../../../../../src/common/api/entities/sys/TypeRefs.js"
+import { OperationType } from "../../../../../src/common/api/common/TutanotaConstants.js"
 import { defer, delay } from "@tutao/tutanota-utils"
-import { ConnectionError } from "../../../../../src/api/common/error/RestError.js"
-import { MailTypeRef } from "../../../../../src/api/entities/tutanota/TypeRefs.js"
+import { ConnectionError } from "../../../../../src/common/api/common/error/RestError.js"
+import { MailboxGroupRootTypeRef, MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
 import { spy } from "@tutao/tutanota-test-utils"
 import { createTestEntity } from "../../../TestUtils.js"
 
@@ -25,13 +23,13 @@ o.spec("EventQueueTest", function () {
 	o.beforeEach(function () {
 		lastProcess = defer()
 		processElement = spy(() => {
-			if (queue._eventQueue.length === 1) {
+			if (queue.queueSize() === 1) {
 				// the last element is removed right after processing it
 				lastProcess.resolve()
 			}
 			return Promise.resolve()
 		})
-		queue = new EventQueue(true, processElement)
+		queue = new EventQueue("test!", true, processElement)
 	})
 
 	o("pause and resume", async function () {
@@ -45,11 +43,11 @@ o.spec("EventQueueTest", function () {
 		queue.addBatches([batchWithOnlyDelete])
 
 		await delay(5)
-		o(queue._eventQueue.length).equals(1)
+		o(queue.queueSize()).equals(1)
 
 		queue.resume()
 		await lastProcess.promise
-		o(queue._eventQueue.length).equals(0)
+		o(queue.queueSize()).equals(0)
 	})
 
 	o("start after pause", async function () {
@@ -64,7 +62,7 @@ o.spec("EventQueueTest", function () {
 
 		await delay(5)
 		queue.start()
-		o(queue._eventQueue.length).equals(1)
+		o(queue.queueSize()).equals(1)
 	})
 
 	o("handle ConnectionError", async function () {
@@ -82,13 +80,13 @@ o.spec("EventQueueTest", function () {
 
 		lastProcess = defer()
 		processElement = spy(() => {
-			if (queue._eventQueue.length === 1) {
+			if (queue.queueSize() === 1) {
 				// the last element is removed right after processing it
 				lastProcess.resolve()
 			}
 			return Promise.resolve()
 		})
-		let queue = new EventQueue(true, (nextElement: QueuedBatch) => {
+		let queue = new EventQueue("test 2!", true, (nextElement: QueuedBatch) => {
 			if (nextElement.batchId === "2") {
 				return Promise.reject(new ConnectionError("no connection"))
 			} else {
@@ -99,8 +97,8 @@ o.spec("EventQueueTest", function () {
 
 		queue.start()
 		await delay(5)
-		o(queue._eventQueue.length).equals(2)
-		o(queue._processingBatch).equals(null)
+		o(queue.queueSize()).equals(2)
+		o(queue.__processingBatch).equals(null)
 	})
 
 	o.spec("collapsing events", function () {
@@ -119,7 +117,10 @@ o.spec("EventQueueTest", function () {
 
 			const expectedDelete = createUpdate(OperationType.DELETE, createEvent.instanceListId, createEvent.instanceId, "u2")
 
-			o(processElement.invocations).deepEquals([[{ events: [expectedDelete], batchId: "batch-id-2", groupId: "group-id" }]])
+			o(processElement.invocations).deepEquals([
+				[{ events: [], batchId: "batch-id-1", groupId: "group-id" }],
+				[{ events: [expectedDelete], batchId: "batch-id-2", groupId: "group-id" }],
+			])
 		})
 
 		o("create + update == create", async function () {
@@ -133,10 +134,13 @@ o.spec("EventQueueTest", function () {
 
 			const expectedCreate = createUpdate(OperationType.CREATE, createEvent.instanceListId, createEvent.instanceId, "u1")
 
-			o(processElement.invocations).deepEquals([[{ events: [expectedCreate], batchId: "batch-id-1", groupId: "group-id" }]])
+			o(processElement.invocations).deepEquals([
+				[{ events: [expectedCreate], batchId: "batch-id-1", groupId: "group-id" }],
+				// new update got optimized away on the spot
+			])
 		})
 
-		o("create + create", async function () {
+		o("create + create == create + create", async function () {
 			const createEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u1")
 			const createEvent2 = createUpdate(OperationType.CREATE, createEvent.instanceListId, createEvent.instanceId, "u2")
 
@@ -167,185 +171,11 @@ o.spec("EventQueueTest", function () {
 
 			const expectedDelete = createUpdate(OperationType.DELETE, createEvent.instanceListId, createEvent.instanceId, "u")
 
-			o(processElement.invocations).deepEquals([[{ events: [expectedDelete], batchId: "batch-id-3", groupId: "group-id" }]])
-		})
-
-		o("create & move == create*", async function () {
-			const createEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u1")
-			const deleteEvent = createUpdate(OperationType.DELETE, createEvent.instanceListId, createEvent.instanceId, "u2")
-			const createAgainEvent = createUpdate(OperationType.CREATE, "new-mail-list-2", createEvent.instanceId, "u3")
-
-			queue.add("batch-id-1", "group-id", [createEvent])
-			queue.add("batch-id-2", "group-id", [deleteEvent, createAgainEvent])
-
-			queue.resume()
-			await lastProcess.promise
-
-			const expectedCreate = createUpdate(OperationType.CREATE, "new-mail-list-2", "1", "u3")
-
-			o(processElement.invocations).deepEquals([[{ events: [expectedCreate], groupId: "group-id", batchId: "batch-id-1" }]])
-		})
-
-		o("move + move == move", async function () {
-			const instanceId = "new-mail"
-			// Two parts of the "move" event in the firts batch
-			const deleteEvent = createUpdate(OperationType.DELETE, "new-mail-list-1", instanceId, "u1")
-			const createEvent = createUpdate(OperationType.CREATE, "new-mail-list-2", instanceId, "u2")
-			// Two parts of the "move" event in the second batch
-			const deleteAgainEvent = createUpdate(OperationType.DELETE, "new-mail-list-2", instanceId, "u3")
-			const createAgainEvent = createUpdate(OperationType.CREATE, "new-mail-list-3", instanceId, "u4")
-
-			queue.add("batch-id-1", "group-id", [deleteEvent, createEvent])
-			queue.add("batch-id-2", "group-id", [deleteAgainEvent, createAgainEvent])
-
-			queue.resume()
-			await lastProcess.promise
-
-			const expectedEvents = [
-				createUpdate(OperationType.DELETE, "new-mail-list-1", instanceId, "u1"),
-				createUpdate(OperationType.CREATE, "new-mail-list-3", instanceId, "u4"),
-			]
-			o(processElement.invocations).deepEquals([[{ events: expectedEvents, groupId: "group-id", batchId: "batch-id-1" }]])
-		})
-
-		o("update + move == delete + create", async function () {
-			const instanceId = "mailId"
-			const updateEvent = createUpdate(OperationType.UPDATE, "new-mail-list", instanceId, "u1")
-			// Two parts of the "move" event in the second batch
-			const deleteEvent = createUpdate(OperationType.DELETE, "new-mail-list", instanceId, "u2")
-			const createEvent = createUpdate(OperationType.CREATE, "new-mail-list-2", instanceId, "u3")
-
-			queue.add("batch-id-1", "group-id", [updateEvent])
-			queue.add("batch-id-2", "group-id", [deleteEvent, createEvent])
-
-			queue.resume()
-			await lastProcess.promise
-
-			const expectedDelete = createUpdate(OperationType.DELETE, "new-mail-list", instanceId, "u2")
-			const expectedCreate = createUpdate(OperationType.CREATE, "new-mail-list-2", instanceId, "u3")
-
 			o(processElement.invocations).deepEquals([
-				[{ events: [expectedDelete], groupId: "group-id", batchId: "batch-id-1" }],
-				[{ events: [expectedCreate], groupId: "group-id", batchId: "batch-id-2" }],
+				[{ events: [], batchId: "batch-id-1", groupId: "group-id" }],
+				// update event was optimized away
+				[{ events: [expectedDelete], batchId: "batch-id-3", groupId: "group-id" }],
 			])
-		})
-
-		o("move + update == move + update", async function () {
-			const moveDeleteEvent = createUpdate(OperationType.DELETE, "old-mail-list", "1", "u0")
-			const moveCreateEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u1")
-			const updateEvent = createUpdate(OperationType.UPDATE, "new-mail-list", "1", "u2")
-
-			queue.add("batch-id-1", "group-id", [moveDeleteEvent, moveCreateEvent])
-			queue.add("batch-id-2", "group-id", [updateEvent])
-			queue.resume()
-			await lastProcess.promise
-
-			o(processElement.invocations).deepEquals([
-				[{ events: [moveDeleteEvent, moveCreateEvent], batchId: "batch-id-1", groupId: "group-id" }],
-				[{ events: [updateEvent], batchId: "batch-id-2", groupId: "group-id" }],
-			])
-		})
-
-		o("move + delete == delete", async function () {
-			const instanceId = "mailId"
-
-			// Two parts of the "move" event in the first batch
-			const deleteEvent = createUpdate(OperationType.DELETE, "new-mail-list", instanceId, "u1")
-			const createEvent = createUpdate(OperationType.CREATE, "new-mail-list-2", instanceId, "u2")
-
-			const deleteEvent2 = createUpdate(OperationType.DELETE, "new-mail-list-2", instanceId, "u3")
-
-			queue.add("batch-id-1", "group-id", [deleteEvent, createEvent])
-			queue.add("batch-id-2", "group-id", [deleteEvent2])
-
-			queue.resume()
-			await lastProcess.promise
-
-			const expectedEvents = [createUpdate(OperationType.DELETE, "new-mail-list", instanceId, "u1")]
-
-			o(processElement.invocations).deepEquals([[{ events: expectedEvents, groupId: "group-id", batchId: "batch-id-1" }]])
-		})
-
-		o("move + update + delete == delete", async function () {
-			const moveDeleteEvent = createUpdate(OperationType.DELETE, "old-mail-list", "1", "u0")
-			const moveCreateEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u1")
-			const updateEvent = createUpdate(OperationType.UPDATE, "new-mail-list", "1", "u2")
-			const deleteEvent = createUpdate(OperationType.DELETE, "new-mail-list", "1", "u3")
-
-			queue.add("batch-id-1", "group-id", [moveDeleteEvent, moveCreateEvent])
-			queue.add("batch-id-2", "group-id", [updateEvent])
-			queue.add("batch-id-3", "group-id", [deleteEvent])
-			queue.resume()
-			await lastProcess.promise
-
-			o(processElement.invocations).deepEquals([[{ events: [moveDeleteEvent], batchId: "batch-id-1", groupId: "group-id" }]])
-		})
-
-		o("update + move + delete == delete", async function () {
-			const updateEvent = createUpdate(OperationType.UPDATE, "old-mail-list", "1", "u0")
-			const moveDeleteEvent = createUpdate(OperationType.DELETE, "old-mail-list", "1", "u1")
-			const moveCreateEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u2")
-			const deleteEvent = createUpdate(OperationType.DELETE, "new-mail-list", "1", "u3")
-
-			queue.add("batch-id-1", "group-id", [updateEvent])
-			queue.add("batch-id-2", "group-id", [moveDeleteEvent, moveCreateEvent])
-			queue.add("batch-id-3", "group-id", [deleteEvent])
-			queue.resume()
-			await lastProcess.promise
-
-			o(processElement.invocations).deepEquals([[{ events: [moveDeleteEvent], batchId: "batch-id-1", groupId: "group-id" }]])
-		})
-
-		o("move + update + move + delete == delete (from first move)", async function () {
-			const moveDeleteEvent = createUpdate(OperationType.DELETE, "old-mail-list", "1", "u0")
-			const moveCreateEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u1")
-			const updateEvent = createUpdate(OperationType.UPDATE, "new-mail-list", "1", "u2")
-			const move2DeleteEvent = createUpdate(OperationType.DELETE, "new-mail-list", "1", "u3")
-			const move2CreateEvent = createUpdate(OperationType.CREATE, "newest-mail-list", "1", "u4")
-			const deleteEvent = createUpdate(OperationType.DELETE, "newest-mail-list", "1", "u5")
-
-			queue.add("batch-id-1", "group-id", [moveDeleteEvent, moveCreateEvent])
-			queue.add("batch-id-2", "group-id", [updateEvent])
-			queue.add("batch-id-3", "group-id", [move2DeleteEvent, move2CreateEvent])
-			queue.add("batch-id-4", "group-id", [deleteEvent])
-			queue.resume()
-			await lastProcess.promise
-
-			o(processElement.invocations).deepEquals([[{ events: [moveDeleteEvent], batchId: "batch-id-1", groupId: "group-id" }]])
-		})
-
-		o("create + move + update + delete == delete (from first move)", async function () {
-			const createEvent = createUpdate(OperationType.CREATE, "old-mail-list", "1", "u0")
-			const moveDeleteEvent = createUpdate(OperationType.DELETE, "old-mail-list", "1", "u1")
-			const moveCreateEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u2")
-			const updateEvent = createUpdate(OperationType.UPDATE, "new-mail-list", "1", "u4")
-			const deleteEvent = createUpdate(OperationType.DELETE, "new-mail-list", "1", "u5")
-
-			queue.add("batch-id-1", "group-id", [createEvent])
-			queue.add("batch-id-2", "group-id", [moveDeleteEvent, moveCreateEvent])
-			queue.add("batch-id-3", "group-id", [updateEvent])
-			queue.add("batch-id-4", "group-id", [deleteEvent])
-			queue.resume()
-			await lastProcess.promise
-
-			o(processElement.invocations).deepEquals([[{ events: [deleteEvent], batchId: "batch-id-4", groupId: "group-id" }]])
-		})
-
-		o("create + update + move + delete == delete (from first move)", async function () {
-			const createEvent = createUpdate(OperationType.CREATE, "old-mail-list", "1", "u0")
-			const updateEvent = createUpdate(OperationType.UPDATE, "old-mail-list", "1", "u1")
-			const moveDeleteEvent = createUpdate(OperationType.DELETE, "old-mail-list", "1", "u2")
-			const moveCreateEvent = createUpdate(OperationType.CREATE, "new-mail-list", "1", "u3")
-			const deleteEvent = createUpdate(OperationType.DELETE, "new-mail-list", "1", "u4")
-
-			queue.add("batch-id-1", "group-id", [createEvent])
-			queue.add("batch-id-2", "group-id", [updateEvent])
-			queue.add("batch-id-3", "group-id", [moveDeleteEvent, moveCreateEvent])
-			queue.add("batch-id-4", "group-id", [deleteEvent])
-			queue.resume()
-			await lastProcess.promise
-
-			o(processElement.invocations).deepEquals([[{ events: [deleteEvent], batchId: "batch-id-4", groupId: "group-id" }]])
 		})
 
 		o("delete + create == delete + create", async function () {
@@ -383,11 +213,54 @@ o.spec("EventQueueTest", function () {
 
 			const expectedDelete = createUpdate(OperationType.DELETE, createEvent1.instanceListId, createEvent1.instanceId, "u1")
 			const expectedCreate = createUpdate(OperationType.CREATE, createEvent1.instanceListId, createEvent1.instanceId, "u4")
+			const expectedDelete2 = createUpdate(OperationType.DELETE, createEvent1.instanceListId, createEvent1.instanceId, "u3")
 
 			o(processElement.invocations).deepEquals([
 				[{ events: [expectedDelete], batchId: "batch-id-1", groupId: "group-id" }],
 				[{ events: [nonEmptyEventInBetween], batchId: "batch-id-1.1", groupId: "group-id" }],
+				[{ events: [], batchId: "batch-id-2", groupId: "group-id" }],
+				[{ events: [expectedDelete2], batchId: "batch-id-3", groupId: "group-id" }],
 				[{ events: [expectedCreate], batchId: "batch-id-4", groupId: "group-id" }],
+			])
+		})
+
+		o("delete (list 1) + create (list 2) == delete (list 1) + create (list 2)", async function () {
+			// entity updates with for the same element id but different list IDs do not influence each other
+			const deleteEvent1 = createUpdate(OperationType.DELETE, "list1", "1", "u1")
+			const createEvent1 = createUpdate(OperationType.CREATE, "list2", "1", "u2")
+
+			queue.add("batch-id-1", "group-id", [deleteEvent1])
+			queue.add("batch-id-2", "group-id", [createEvent1])
+			queue.resume()
+			await lastProcess.promise
+
+			const expectedDelete = createUpdate(OperationType.DELETE, deleteEvent1.instanceListId, deleteEvent1.instanceId, "u1")
+			const expectedCreate = createUpdate(OperationType.CREATE, createEvent1.instanceListId, createEvent1.instanceId, "u2")
+
+			o(processElement.invocations).deepEquals([
+				[{ events: [expectedDelete], batchId: "batch-id-1", groupId: "group-id" }],
+				[{ events: [expectedCreate], batchId: "batch-id-2", groupId: "group-id" }],
+			])
+		})
+
+		o("create (list 1) + update (list 1) + delete (list 2) == create (list 1) + delete (list 2)", async function () {
+			// entity updates with for the same element id but different list IDs do not influence each other
+			const createEvent1 = createUpdate(OperationType.CREATE, "list1", "1", "u1")
+			const updateEvent1 = createUpdate(OperationType.UPDATE, "list1", "1", "u2")
+			const deleteEvent1 = createUpdate(OperationType.DELETE, "list2", "1", "u3")
+
+			queue.add("batch-id-1", "group-id", [createEvent1])
+			queue.add("batch-id-2", "group-id", [updateEvent1])
+			queue.add("batch-id-3", "group-id", [deleteEvent1])
+			queue.resume()
+			await lastProcess.promise
+
+			const expectedCreate = createUpdate(OperationType.CREATE, createEvent1.instanceListId, createEvent1.instanceId, "u1")
+			const expectedDelete = createUpdate(OperationType.DELETE, deleteEvent1.instanceListId, deleteEvent1.instanceId, "u3")
+
+			o(processElement.invocations).deepEquals([
+				[{ events: [expectedCreate], batchId: "batch-id-1", groupId: "group-id" }],
+				[{ events: [expectedDelete], batchId: "batch-id-3", groupId: "group-id" }],
 			])
 		})
 
@@ -406,6 +279,41 @@ o.spec("EventQueueTest", function () {
 			])
 		})
 
+		o(
+			"[delete (list 1) + create (list 2)] + delete (list 2) + create (list 2) = [delete (list 1) + create (list 2)] + delete (list 2) + create (list 2)",
+			async function () {
+				const deleteEvent1 = createUpdate(OperationType.DELETE, "l1", "1", "u0")
+				const createEvent1 = createUpdate(OperationType.CREATE, "l2", "1", "u1")
+				const deleteEvent2 = createUpdate(OperationType.DELETE, "l2", "1", "u2")
+				const createEvent2 = createUpdate(OperationType.CREATE, "l2", "1", "u3")
+
+				queue.add("batch-id-1", "group-id-1", [deleteEvent1, createEvent1])
+				queue.add("batch-id-2", "group-id-1", [deleteEvent2])
+				queue.add("batch-id-3", "group-id-1", [createEvent2])
+				queue.resume()
+				await lastProcess.promise
+
+				o(processElement.invocations).deepEquals([
+					[{ events: [deleteEvent1], batchId: "batch-id-1", groupId: "group-id-1" }],
+					[{ events: [deleteEvent2], batchId: "batch-id-2", groupId: "group-id-1" }],
+					[{ events: [createEvent2], batchId: "batch-id-3", groupId: "group-id-1" }],
+				])
+			},
+		)
+
+		o("optimization does not fail when there are new events with the same id but a different type", function () {
+			const batchId = "batch-id-1"
+			const groupId = "group-id-1"
+			const instanceId = "instance-id-1"
+			const eventId = "event-id-1"
+			const updateEvent1 = createUpdate(OperationType.UPDATE, "", instanceId, eventId)
+			const updateEvent2 = createUpdate(OperationType.UPDATE, "", instanceId, eventId)
+			updateEvent1.type = GroupTypeRef.type
+			updateEvent2.type = MailboxGroupRootTypeRef.type
+			queue.add(batchId, groupId, [updateEvent1])
+			queue.add(batchId, groupId, [updateEvent2])
+		})
+
 		function createUpdate(type: OperationType, listId: Id, instanceId: Id, eventId?: Id): EntityUpdate {
 			let update = createTestEntity(EntityUpdateTypeRef)
 			update.operation = type
@@ -418,5 +326,151 @@ o.spec("EventQueueTest", function () {
 			}
 			return update
 		}
+	})
+
+	o.spec("batchMod", function () {
+		const batchId = "batchId"
+		const instanceListId = "instanceListId"
+		const instanceId = "instanceId"
+		o("one entity with the same id and type", async () => {
+			o(
+				batchMod(
+					batchId,
+					[
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "mail",
+							operation: OperationType.CREATE,
+							instanceId,
+							instanceListId,
+						}),
+					],
+					createTestEntity(EntityUpdateTypeRef, {
+						application: "tutanota",
+						type: "mail",
+						operation: OperationType.CREATE,
+						instanceId,
+						instanceListId,
+					}),
+				),
+			).equals(EntityModificationType.CREATE)
+		})
+
+		o("there is another op with the same type but different element id", async () => {
+			o(
+				batchMod(
+					batchId,
+					[
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "mail",
+							operation: OperationType.DELETE,
+							instanceId: "instanceId2",
+							instanceListId,
+						}),
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "mail",
+							operation: OperationType.CREATE,
+							instanceId,
+							instanceListId,
+						}),
+					],
+					createTestEntity(EntityUpdateTypeRef, {
+						application: "tutanota",
+						type: "mail",
+						operation: OperationType.CREATE,
+						instanceId,
+						instanceListId,
+					}),
+				),
+			).equals(EntityModificationType.CREATE)
+		})
+
+		o("there is another op with the same type but different list id", async () => {
+			o(
+				batchMod(
+					batchId,
+					[
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "mail",
+							operation: OperationType.DELETE,
+							instanceId,
+							instanceListId: "instanceListId2",
+						}),
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "mail",
+							operation: OperationType.CREATE,
+							instanceId,
+							instanceListId,
+						}),
+					],
+					createTestEntity(EntityUpdateTypeRef, {
+						application: "tutanota",
+						type: "mail",
+						operation: OperationType.CREATE,
+						instanceId,
+						instanceListId,
+					}),
+				),
+			).equals(EntityModificationType.CREATE)
+		})
+
+		o("there is another op with the id but different type", async () => {
+			o(
+				batchMod(
+					batchId,
+					[
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "contact",
+							operation: OperationType.DELETE,
+							instanceId,
+							instanceListId,
+						}),
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "mail",
+							operation: OperationType.CREATE,
+							instanceId,
+							instanceListId,
+						}),
+					],
+					createTestEntity(EntityUpdateTypeRef, {
+						application: "tutanota",
+						type: "mail",
+						operation: OperationType.CREATE,
+						instanceId,
+						instanceListId,
+					}),
+				),
+			).equals(EntityModificationType.CREATE)
+		})
+
+		o("modification is based on operation of batch, not the argument", async () => {
+			o(
+				batchMod(
+					batchId,
+					[
+						createTestEntity(EntityUpdateTypeRef, {
+							application: "tutanota",
+							type: "mail",
+							operation: OperationType.CREATE,
+							instanceId,
+							instanceListId,
+						}),
+					],
+					createTestEntity(EntityUpdateTypeRef, {
+						application: "tutanota",
+						type: "mail",
+						operation: OperationType.DELETE,
+						instanceId,
+						instanceListId,
+					}),
+				),
+			).equals(EntityModificationType.CREATE)
+		})
 	})
 })

@@ -192,6 +192,10 @@ export function isEmpty<T>(array: ReadonlyArray<T>): boolean {
 	return array.length === 0
 }
 
+export function isNotEmpty(array: ReadonlyArray<unknown>): boolean {
+	return array.length != 0
+}
+
 export function lastThrow<T>(array: ReadonlyArray<T>): T {
 	if (isEmpty(array)) {
 		throw new RangeError("Array is empty")
@@ -301,13 +305,28 @@ export function groupBy<T, R>(iterable: Iterable<T>, discriminator: (arg0: T) =>
 }
 
 /**
+ * Collect an iterable into a map based on {@param keyExtractor}.
+ */
+export function collectToMap<T, R>(iterable: Iterable<T>, keyExtractor: (element: T) => R): Map<R, T> {
+	const map = new Map()
+	for (const el of iterable) {
+		const key = keyExtractor(el)
+		if (map.has(key)) {
+			throw new Error(`The elements of iterable are not unique, duplicated key: ${key}`)
+		}
+		map.set(key, el)
+	}
+	return map
+}
+
+/**
  * split an array into chunks of a given size.
  * the last chunk will be smaller if there are less than chunkSize elements left.
  * @param chunkSize
  * @param array
  * @returns {Array<Array<T>>}
  */
-export function splitInChunks<T>(chunkSize: number, array: Array<T>): Array<Array<T>> {
+export function splitInChunks<T>(chunkSize: number, array: ReadonlyArray<T>): Array<Array<T>> {
 	return downcast(_chunk(chunkSize, array))
 }
 
@@ -315,7 +334,7 @@ export function splitUint8ArrayInChunks(chunkSize: number, array: Uint8Array): A
 	return downcast(_chunk(chunkSize, array))
 }
 
-function _chunk<T>(chunkSize: number, array: Array<T> | Uint8Array): Array<Array<T> | Uint8Array> {
+function _chunk<T>(chunkSize: number, array: ReadonlyArray<T> | Uint8Array): Array<Array<T> | Uint8Array> {
 	if (chunkSize < 1) {
 		return []
 	}
@@ -555,4 +574,27 @@ export function zeroOut(...arrays: (Uint8Array | Int8Array)[]) {
 	for (const a of arrays) {
 		a.fill(0)
 	}
+}
+
+/**
+ * @return 1 if first is bigger than second, -1 if second is bigger than first and 0 otherwise
+ */
+export function compare(first: Uint8Array, second: Uint8Array): number {
+	if (first.length > second.length) {
+		return 1
+	} else if (first.length < second.length) {
+		return -1
+	}
+
+	for (let i = 0; i < first.length; i++) {
+		const a = first[i]
+		const b = second[i]
+		if (a > b) {
+			return 1
+		} else if (a < b) {
+			return -1
+		}
+	}
+
+	return 0
 }

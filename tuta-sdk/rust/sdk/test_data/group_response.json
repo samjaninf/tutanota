@@ -1,0 +1,32 @@
+{
+	"_format": "0",
+	"_id": "O0IlmJq----0",
+	"_ownerGroup": "O0IlmJq----0",
+	"_permissions": "LIopQQN--R-0",
+	"adminGroupEncGKey": "",
+	"adminGroupKeyVersion": "0",
+	"enabled": "1",
+	"external": "0",
+	"groupKeyVersion": "0",
+	"pubAdminGroupEncGKey": null,
+	"type": "5",
+	"admin": "O0IlmJn--c-0",
+	"administratedGroups": null,
+	"archives": [],
+	"currentKeys": {
+		"_id": "nS9dTQ",
+		"pubEccKey": null,
+		"pubKyberKey": null,
+		"pubRsaKey": null,
+		"symEncPrivEccKey": null,
+		"symEncPrivKyberKey": null,
+		"symEncPrivRsaKey": null
+	},
+	"customer": "O0IlmJn--7-0",
+	"formerGroupKeys": { "_id": "123", "list": "list" },
+	"groupInfo": ["LIopQQI--k-0", "LIopQQN--c-0"],
+	"invitations": "LIopQQN--V-0",
+	"members": "LIopQQN--Z-0",
+	"storageCounter": "NWJVVC_----0",
+	"user": "O0IlmJn----0"
+}

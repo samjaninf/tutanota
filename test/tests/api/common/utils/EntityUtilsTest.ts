@@ -1,18 +1,20 @@
 import o from "@tutao/otest"
 import {
+	constructMailSetEntryId,
 	create,
+	deconstructMailSetEntryId,
 	GENERATED_MIN_ID,
 	generatedIdToTimestamp,
 	removeTechnicalFields,
 	timestampToGeneratedId,
 	timestampToHexGeneratedId,
-} from "../../../../../src/api/common/utils/EntityUtils.js"
-import { MailTypeRef } from "../../../../../src/api/entities/tutanota/TypeRefs.js"
-import { typeModels } from "../../../../../src/api/entities/tutanota/TypeModels.js"
+} from "../../../../../src/common/api/common/utils/EntityUtils.js"
+import { MailTypeRef } from "../../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { typeModels } from "../../../../../src/common/api/entities/tutanota/TypeModels.js"
 
-import { ElementEntity } from "../../../../../src/api/common/EntityTypes.js"
+import { ElementEntity } from "../../../../../src/common/api/common/EntityTypes.js"
 import { clone, TypeRef } from "@tutao/tutanota-utils"
-import { hasError } from "../../../../../src/api/common/utils/ErrorUtils.js"
+import { hasError } from "../../../../../src/common/api/common/utils/ErrorUtils.js"
 
 o.spec("EntityUtils", function () {
 	o("TimestampToHexGeneratedId ", function () {
@@ -29,6 +31,26 @@ o.spec("EntityUtils", function () {
 		o(generatedIdToTimestamp(timestampToGeneratedId(0))).equals(0)
 		o(generatedIdToTimestamp("zzzzzzzzzzzz")).equals(maxTimestamp)
 		o(generatedIdToTimestamp("IwQvgF------")).equals(1370563200000)
+	})
+
+	o.spec("MailSetEntry id", function () {
+		o("constructMailSetEntryId", function () {
+			const mailId: Id = "-----------0"
+
+			const expected = "V7ifKQAAAAAAAAAAAQ"
+			const receiveDate = new Date("2017-10-03T13:46:13Z")
+
+			const calculatedId = constructMailSetEntryId(receiveDate, mailId)
+			o(expected).equals(calculatedId)
+		})
+
+		o("deconstructMailSetEntryId", function () {
+			const setEntryId = "V7ifKQAAAAAAAAAAAQ"
+			const { receiveDate, mailId } = deconstructMailSetEntryId(setEntryId)
+			const diff = Math.abs(receiveDate.getTime() - new Date("2017-10-03T13:46:12.864Z").getTime())
+			o(diff < 10).equals(true)(`Expected a date near ${new Date("2017-10-03T13:46:12.864Z")}, got: ${receiveDate} with diff ${diff}`)
+			o(mailId).equals("-----------0")
+		})
 	})
 
 	o("create new entity without error object ", function () {

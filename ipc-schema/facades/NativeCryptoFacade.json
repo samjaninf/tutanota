@@ -56,33 +56,13 @@
 			],
 			"ret": "string"
 		},
-		"generateRsaKey": {
+		"argon2idGeneratePassphraseKey": {
 			"arg": [
 				{
-					"seed": "bytes"
-				}
-			],
-			"ret": "RsaKeyPair"
-		},
-		"argon2idHashRaw": {
-			"arg": [
-				{
-					"password": "bytes"
+					"passphrase": "string"
 				},
 				{
 					"salt": "bytes"
-				},
-				{
-					"timeCost": "number"
-				},
-				{
-					"memoryCost": "number"
-				},
-				{
-					"parallelism": "number"
-				},
-				{
-					"hashLength": "number"
 				}
 			],
 			"ret": "bytes"

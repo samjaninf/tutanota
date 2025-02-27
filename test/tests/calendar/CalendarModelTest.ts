@@ -1,5 +1,5 @@
 import o from "@tutao/otest"
-import type { CalendarEvent, CalendarGroupRoot } from "../../../src/api/entities/tutanota/TypeRefs.js"
+import type { CalendarEvent, CalendarGroupRoot } from "../../../src/common/api/entities/tutanota/TypeRefs.js"
 import {
 	CalendarEventAttendeeTypeRef,
 	CalendarEventTypeRef,
@@ -7,34 +7,37 @@ import {
 	CalendarGroupRootTypeRef,
 	EncryptedMailAddressTypeRef,
 	FileTypeRef,
-} from "../../../src/api/entities/tutanota/TypeRefs.js"
-import { incrementByRepeatPeriod } from "../../../src/calendar/date/CalendarUtils.js"
+} from "../../../src/common/api/entities/tutanota/TypeRefs.js"
 import { downcast, hexToUint8Array, neverNull, stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
-import { CalendarModel } from "../../../src/calendar/model/CalendarModel.js"
-import { CalendarAttendeeStatus, CalendarMethod, OperationType, RepeatPeriod } from "../../../src/api/common/TutanotaConstants.js"
+import { CalendarModel } from "../../../src/calendar-app/calendar/model/CalendarModel.js"
+import { CalendarAttendeeStatus, CalendarMethod, OperationType, RepeatPeriod } from "../../../src/common/api/common/TutanotaConstants.js"
 import { DateTime } from "luxon"
-import { EntityEventsListener, EventController } from "../../../src/api/main/EventController.js"
-import { Notifications } from "../../../src/gui/Notifications.js"
-import { AlarmInfo, AlarmInfoTypeRef, UserAlarmInfoListTypeTypeRef, UserAlarmInfoTypeRef, UserTypeRef } from "../../../src/api/entities/sys/TypeRefs.js"
+import { EntityEventsListener, EventController } from "../../../src/common/api/main/EventController.js"
+import { Notifications } from "../../../src/common/gui/Notifications.js"
+import { AlarmInfo, AlarmInfoTypeRef, UserAlarmInfoListTypeTypeRef, UserAlarmInfoTypeRef, UserTypeRef } from "../../../src/common/api/entities/sys/TypeRefs.js"
 import { EntityRestClientMock } from "../api/worker/rest/EntityRestClientMock.js"
-import type { UserController } from "../../../src/api/main/UserController.js"
-import { NotFoundError } from "../../../src/api/common/error/RestError.js"
-import type { LoginController } from "../../../src/api/main/LoginController.js"
-import { ProgressTracker } from "../../../src/api/main/ProgressTracker.js"
-import { EntityClient } from "../../../src/api/common/EntityClient.js"
-import { MailModel } from "../../../src/mail/model/MailModel.js"
-import { CalendarEventProgenitor, CalendarFacade } from "../../../src/api/worker/facades/lazy/CalendarFacade.js"
+import type { UserController } from "../../../src/common/api/main/UserController.js"
+import { NotFoundError } from "../../../src/common/api/common/error/RestError.js"
+import type { LoginController } from "../../../src/common/api/main/LoginController.js"
+import { ProgressTracker } from "../../../src/common/api/main/ProgressTracker.js"
+import { EntityClient } from "../../../src/common/api/common/EntityClient.js"
+import { CalendarEventProgenitor, CalendarFacade } from "../../../src/common/api/worker/facades/lazy/CalendarFacade.js"
 import { verify } from "@tutao/tutanota-test-utils"
-import type { WorkerClient } from "../../../src/api/main/WorkerClient.js"
-import { FileController } from "../../../src/file/FileController.js"
+import type { WorkerClient } from "../../../src/common/api/main/WorkerClient.js"
+import { FileController } from "../../../src/common/file/FileController.js"
 import { func, matchers, object, when } from "testdouble"
-import { elementIdPart, getElementId, listIdPart } from "../../../src/api/common/utils/EntityUtils.js"
-import { createDataFile } from "../../../src/api/common/DataFile.js"
-import { SessionKeyNotFoundError } from "../../../src/api/common/error/SessionKeyNotFoundError.js"
+import { elementIdPart, getElementId, listIdPart } from "../../../src/common/api/common/utils/EntityUtils.js"
+import { createDataFile } from "../../../src/common/api/common/DataFile.js"
+import { SessionKeyNotFoundError } from "../../../src/common/api/common/error/SessionKeyNotFoundError.js"
 import { createTestEntity } from "../TestUtils.js"
-import { NoopProgressMonitor } from "../../../src/api/common/utils/ProgressMonitor.js"
+import { NoopProgressMonitor } from "../../../src/common/api/common/utils/ProgressMonitor.js"
 import { makeAlarmScheduler } from "./CalendarTestUtils.js"
-import { EntityUpdateData } from "../../../src/api/common/utils/EntityUpdateUtils.js"
+import { EntityUpdateData } from "../../../src/common/api/common/utils/EntityUpdateUtils.js"
+import { MailboxModel } from "../../../src/common/mailFunctionality/MailboxModel.js"
+import { incrementByRepeatPeriod } from "../../../src/common/calendar/date/CalendarUtils.js"
+import { ExternalCalendarFacade } from "../../../src/common/native/common/generatedipc/ExternalCalendarFacade.js"
+import { DeviceConfig } from "../../../src/common/misc/DeviceConfig.js"
+import { SyncTracker } from "../../../src/common/api/main/SyncTracker.js"
 
 o.spec("CalendarModel", function () {
 	o.spec("incrementByRepeatPeriod", function () {
@@ -329,7 +332,7 @@ o.spec("CalendarModel", function () {
 			const workerClient = makeWorkerClient()
 			const calendarFacade = makeCalendarFacade(
 				{
-					getEventsByUid: (loadUid) => Promise.resolve(null),
+					getEventsByUid: (_loadUid) => Promise.resolve(null),
 				},
 				restClientMock,
 			)
@@ -556,7 +559,7 @@ o.spec("CalendarModel", function () {
 						},
 					],
 				})
-				await o(() => restClientMock.load(CalendarEventTypeRef, existingEvent._id, null)).asyncThrows(NotFoundError)
+				await o(() => restClientMock.load(CalendarEventTypeRef, existingEvent._id)).asyncThrows(NotFoundError)
 			})
 			o("event is cancelled by someone else than organizer", async function () {
 				const uid = "uid"
@@ -592,7 +595,7 @@ o.spec("CalendarModel", function () {
 						},
 					],
 				})
-				o(await restClientMock.load(CalendarEventTypeRef, existingEvent._id, null)).equals(existingEvent)("Calendar event was not deleted")
+				o(await restClientMock.load(CalendarEventTypeRef, existingEvent._id)).equals(existingEvent)("Calendar event was not deleted")
 			})
 		})
 		o("reprocess deferred calendar events with no owner enc session key", async function () {
@@ -627,12 +630,6 @@ o.spec("CalendarModel", function () {
 				createDataFile("event.ics", "ical", stringToUtf8Uint8Array("UID: " + uid), "cid"),
 			)
 
-			const actuallyErase = restClientMock.erase
-			restClientMock.erase = func<EntityRestClientMock["erase"]>()
-			when(restClientMock.erase(matchers.anything())).thenDo((what) => {
-				return actuallyErase.apply(restClientMock, [what])
-			})
-
 			const actuallyLoad = restClientMock.load
 			restClientMock.load = func<EntityRestClientMock["load"]>()
 			when(restClientMock.load(matchers.anything(), matchers.anything()), { ignoreExtraArgs: true }).thenDo((...args) =>
@@ -659,7 +656,8 @@ o.spec("CalendarModel", function () {
 			})
 
 			o(model.getFileIdToSkippedCalendarEventUpdates().get(getElementId(calendarFile))!).deepEquals(eventUpdate)
-			verify(restClientMock.erase(eventUpdate), { times: 0 })
+
+			o(await restClientMock.load(CalendarEventUpdateTypeRef, eventUpdate._id)).deepEquals(eventUpdate)
 
 			restClientMock.load = actuallyLoad
 
@@ -675,7 +673,7 @@ o.spec("CalendarModel", function () {
 
 			o(model.getFileIdToSkippedCalendarEventUpdates().size).deepEquals(0)
 			verify(fileControllerMock.getAsDataFile(matchers.anything()), { times: 1 })
-			verify(restClientMock.erase(eventUpdate))
+			await o(async () => restClientMock.load(CalendarEventUpdateTypeRef, eventUpdate._id)).asyncThrows(NotFoundError)
 		})
 	})
 })
@@ -689,6 +687,12 @@ function makeProgressTracker(): ProgressTracker {
 	when(progressTracker.registerMonitorSync(matchers.anything())).thenReturn(0)
 	when(progressTracker.getMonitor(matchers.anything())).thenReturn(new NoopProgressMonitor())
 	return progressTracker
+}
+
+function makeSyncTracker(): SyncTracker {
+	const syncTracker: SyncTracker = object()
+	when(syncTracker.isSyncDone()).thenReturn(true)
+	return syncTracker
 }
 
 function makeEventController(): {
@@ -731,11 +735,11 @@ function makeLoginController(): LoginController {
 	return loginController
 }
 
-function makeMailModel(): MailModel {
+function makeMailModel(): MailboxModel {
 	return downcast({})
 }
 
-function makeCalendarFacade(getEventsByUid: { getEventsByUid: Function }, entityRestClient: EntityRestClientMock): CalendarFacade {
+function makeCalendarFacade(getEventsByUid: { getEventsByUid: (_: any) => unknown }, entityRestClient: EntityRestClientMock): CalendarFacade {
 	const saveCalendarEvent = func<CalendarFacade["saveCalendarEvent"]>()
 	when(saveCalendarEvent(matchers.anything(), matchers.anything(), matchers.anything())).thenDo((event) => {
 		// testdouble is very insistent on calling such callbacks even during verification and we get weird args here
@@ -752,6 +756,14 @@ function makeCalendarFacade(getEventsByUid: { getEventsByUid: Function }, entity
 }
 
 function makeFileController(): FileController {
+	return downcast({})
+}
+
+function makeExternalCalendarFacade(): ExternalCalendarFacade {
+	return downcast({})
+}
+
+function makeDeviceConfig(): DeviceConfig {
 	return downcast({})
 }
 
@@ -772,6 +784,9 @@ function init({
 		restClientMock,
 	),
 	fileFacade = makeFileController(),
+	externalCalendarFacade = makeExternalCalendarFacade(),
+	deviceConfig = makeDeviceConfig(),
+	syncTracker = makeSyncTracker(),
 }): CalendarModel {
 	const lazyScheduler = async () => alarmScheduler
 
@@ -787,5 +802,14 @@ function init({
 		calendarFacade,
 		fileFacade,
 		"Europe/Berlin",
+		externalCalendarFacade,
+		deviceConfig,
+		downcast({
+			getLoadedPushIdentifier: () => ({
+				identifier: "",
+				disabled: false,
+			}),
+		}),
+		syncTracker,
 	)
 }

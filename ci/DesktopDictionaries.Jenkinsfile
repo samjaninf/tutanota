@@ -1,7 +1,5 @@
 pipeline {
     environment {
-    	// on m1 macs, this is a symlink that must be updated. see wiki.
-        NODE_MAC_PATH = '/usr/local/opt/node@20/bin/'
         VERSION = sh(returnStdout: true, script: "${env.NODE_PATH}/node -p -e \"require('./package.json').version\" | tr -d \"\n\"")
     }
     options {
@@ -13,6 +11,11 @@ pipeline {
             name: 'RELEASE',
             defaultValue: false,
             description: "Prepare a release version (doesn't publish to production, this is done manually)"
+        )
+        string(
+            name: 'branch',
+            defaultValue: "*/master",
+            description: "the branch to build the release from."
         )
     }
 

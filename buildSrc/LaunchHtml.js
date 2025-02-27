@@ -36,11 +36,10 @@ export async function renderHtml(scripts, env) {
 	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 	${scripts.map(renderScriptImport).join("\n\t")}
 	<!-- TutanotaTags -->
-	<title>${env.mode === "App" ? "Tuta Mail" : "Mail. Done. Right. Tuta Mail Login &amp; Sign up for an Ad-free Mailbox"}</title>
-	<meta name="description" content="Mail. Done. Right. Get a free mail account that does not abuse your emails for advertising. Tuta Mail is fast, easy, secure and free of ads.">
-	<link rel="shortcut icon" type="image/x-icon" href="images/logo-favicon-152.png">
+	<title>${env.mode === "App" || env.mode === "Desktop" ? "Tuta Mail" : "Tuta Mail: Login &amp; Sign up for free"}</title>
+	<meta name="description" content="Sign-up for Tuta Mail: Get a free email account with quantum-safe encryption and best privacy for all your emails, calendars and contacts.">
 	<meta name="application-name" content="Tuta Mail">
-	<link rel="apple-touch-icon" sizes="152x152" href="images/logo-favicon-152.png">
+	<link rel="apple-touch-icon" href="images/apple-touch-icon.png">
 	<link rel="icon" sizes="192x192" href="/images/logo-favicon-192.png">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:site" content="@TutaPrivacy">
@@ -48,17 +47,18 @@ export async function renderHtml(scripts, env) {
     <meta name="twitter:image" content="https://tuta.com/resources/images/share-tutanota-twitter-thumbnail.png">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Tuta Mail">
-    <meta property="og:title" content="Secure Emails Become a Breeze">
+    <meta property="og:title" content="Turn ON Privacy">
     <meta property="og:description"
-          content="Tuta Mail is the secure email service, built in Germany. Use encrypted emails on all devices with our open source email client, mobile apps &amp; desktop clients.">
+          content="Get a free email account with quantum-safe encryption and best privacy on all your devices. Green, secure &amp; no ads!">
     <meta property="og:locale" content="en">
     <meta property="og:url" content="https://tuta.com/">
     <meta property="og:image" content="https://tuta.com/resources/images/share-tutanota-fb-thumbnail.png">
     <meta property="article:publisher" content="https://www.facebook.com/tutanota">
-	<meta itemprop="name" content="Secure Emails Become a Breeze.">
-	<meta itemprop="description" content="Get your encrypted mailbox for free and show the Internet spies that you won&amp;#39;t make it easy for them! Why? Because you simply can.">
+	<meta itemprop="name" content="Turn ON Privacy">
+	<meta itemprop="description" content="Get a free email account with quantum-safe encryption and best privacy on all your devices. Green, secure &amp; no ads!">
 	<meta itemprop="image" content="https://tuta.com/images/share_image.png">
-	<meta name="apple-itunes-app" content="app-id=id922429609, affiliate-data=10lSfb">
+	<meta name="apple-itunes-app" content="app-id=922429609, app-argument=https://app.tuta.com">
+	<link rel="canonical" href="https://app.tuta.com/">
 </head>
 <body style="background-color:transparent">
 <noscript>This site requires javascript to be enabled. Please activate it in the settings of your browser.</noscript>

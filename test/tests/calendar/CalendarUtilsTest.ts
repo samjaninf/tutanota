@@ -1,11 +1,14 @@
 import o from "@tutao/otest"
-import type { AlarmInterval, AlarmOccurrence, CalendarMonth } from "../../../src/calendar/date/CalendarUtils.js"
 import {
 	addDaysForEventInstance,
 	addDaysForRecurringEvent,
+	AlarmInterval,
 	AlarmIntervalUnit,
+	AlarmOccurrence,
+	ByRule,
 	calendarEventHasMoreThanOneOccurrencesLeft,
 	CalendarEventValidity,
+	CalendarMonth,
 	checkEventValidity,
 	createRepeatRuleWithValues,
 	eventEndsBefore,
@@ -22,36 +25,44 @@ import {
 	getWeekNumber,
 	isEventBetweenDays,
 	parseAlarmInterval,
+	StandardAlarmInterval,
+} from "../../../src/common/calendar/date/CalendarUtils.js"
+import { lang } from "../../../src/common/misc/LanguageViewModel.js"
+import { DateWrapperTypeRef, GroupMembershipTypeRef, GroupTypeRef, RepeatRule, UserTypeRef } from "../../../src/common/api/entities/sys/TypeRefs.js"
+import { AccountType, EndType, GroupType, RepeatPeriod, ShareCapability } from "../../../src/common/api/common/TutanotaConstants.js"
+import { timeStringFromParts } from "../../../src/common/misc/Formatter.js"
+import { DateTime } from "luxon"
+import {
+	generateEventElementId,
+	getAllDayDateUTC,
 	prepareCalendarDescription,
 	serializeAlarmInterval,
-	StandardAlarmInterval,
-} from "../../../src/calendar/date/CalendarUtils.js"
-import { lang } from "../../../src/misc/LanguageViewModel.js"
-import { DateWrapperTypeRef, GroupMembershipTypeRef, GroupTypeRef, User, UserTypeRef } from "../../../src/api/entities/sys/TypeRefs.js"
-import { AccountType, EndType, GroupType, RepeatPeriod, ShareCapability } from "../../../src/api/common/TutanotaConstants.js"
-import { timeStringFromParts } from "../../../src/misc/Formatter.js"
-import { DateTime } from "luxon"
-import { generateEventElementId, getAllDayDateUTC } from "../../../src/api/common/utils/CommonCalendarUtils.js"
-import { hasCapabilityOnGroup } from "../../../src/sharing/GroupUtils.js"
-import type { CalendarEvent } from "../../../src/api/entities/tutanota/TypeRefs.js"
+} from "../../../src/common/api/common/utils/CommonCalendarUtils.js"
+import { hasCapabilityOnGroup } from "../../../src/common/sharing/GroupUtils.js"
 import {
+	AdvancedRepeatRule,
+	CalendarEvent,
 	CalendarEventAttendeeTypeRef,
 	CalendarEventTypeRef,
 	CalendarRepeatRuleTypeRef,
+	createAdvancedRepeatRule,
 	createCalendarRepeatRule,
 	EncryptedMailAddressTypeRef,
-} from "../../../src/api/entities/tutanota/TypeRefs.js"
+	UserSettingsGroupRootTypeRef,
+} from "../../../src/common/api/entities/tutanota/TypeRefs.js"
 import { clone, getStartOfDay, identity, lastThrow, neverNull } from "@tutao/tutanota-utils"
-import { Time } from "../../../src/calendar/date/Time.js"
-import { EventType } from "../../../src/calendar/gui/eventeditor-model/CalendarEventModel.js"
-import { CalendarInfo } from "../../../src/calendar/model/CalendarModel.js"
-import { object, replace } from "testdouble"
-import { CalendarEventAlteredInstance, CalendarEventProgenitor } from "../../../src/api/worker/facades/lazy/CalendarFacade.js"
-import { getDateInUTC, getDateInZone } from "./CalendarTestUtils.js"
-import { ParserError } from "../../../src/misc/parsing/ParserCombinator.js"
+import { replace } from "testdouble"
+import { CalendarEventAlteredInstance, CalendarEventProgenitor } from "../../../src/common/api/worker/facades/lazy/CalendarFacade.js"
+import { getDateInUTC, getDateInZone, makeUserController } from "./CalendarTestUtils.js"
+import { ParserError } from "../../../src/common/misc/parsing/ParserCombinator.js"
 import { createTestEntity } from "../TestUtils.js"
 
-import { getCalendarMonth, getEventType } from "../../../src/calendar/gui/CalendarGuiUtils.js"
+import { getCalendarMonth, getEventType } from "../../../src/calendar-app/calendar/gui/CalendarGuiUtils.js"
+import { EventType } from "../../../src/calendar-app/calendar/gui/eventeditor-model/CalendarEventModel.js"
+import { CalendarInfo } from "../../../src/calendar-app/calendar/model/CalendarModel.js"
+import { Time } from "../../../src/common/calendar/date/Time.js"
+import type { UserController } from "../../../src/common/api/main/UserController.js"
+import { StrippedEntity } from "../../../src/common/api/common/utils/EntityUtils.js"
 
 const zone = "Europe/Berlin"
 
@@ -488,7 +499,7 @@ o.spec("calendar utils tests", function () {
 	o.spec("prepareCalendarDescription", function () {
 		o("angled link replaced with a proper link", function () {
 			o(prepareCalendarDescription("JoinBlahBlah<https://the-link.com/path>", identity)).equals(
-				`JoinBlahBlah<a href="https://the-link.com/path">https://the-link.com/path</a>`,
+				`JoinBlahBlah <a href="https://the-link.com/path">https://the-link.com/path</a>`,
 			)
 		})
 		o("normal HTML link is not touched", function () {
@@ -544,14 +555,18 @@ o.spec("calendar utils tests", function () {
 				timeZone,
 				eventStart,
 				eventEnd,
-				RepeatPeriod.WEEKLY,
-				1,
-				EndType.Never,
-				0,
-				[],
 				StandardAlarmInterval.ONE_HOUR,
 				timeZone,
 				10,
+				createCalendarRepeatRule({
+					timeZone: timeZone,
+					frequency: RepeatPeriod.WEEKLY,
+					interval: String(1),
+					endValue: null,
+					endType: "0",
+					excludedDates: [],
+					advancedRules: [],
+				}),
 			)
 			o(occurrences.slice(0, 4)).deepEquals([
 				DateTime.fromObject(
@@ -592,6 +607,302 @@ o.spec("calendar utils tests", function () {
 				).toJSDate(),
 			])
 		})
+		o("weekly never ends with by rules", function () {
+			const now = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 0,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const eventStart = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 12,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const eventEnd = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 14,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const occurrences = iterateAlarmOccurrences(
+				now,
+				timeZone,
+				eventStart,
+				eventEnd,
+				StandardAlarmInterval.ONE_HOUR,
+				timeZone,
+				10,
+				createCalendarRepeatRule({
+					timeZone: timeZone,
+					frequency: RepeatPeriod.WEEKLY,
+					interval: String(1),
+					endValue: null,
+					endType: "0",
+					excludedDates: [],
+					advancedRules: [
+						createAdvancedRepeatRule({
+							interval: "TU",
+							ruleType: ByRule.BYDAY,
+						} as StrippedEntity<AdvancedRepeatRule>),
+						createAdvancedRepeatRule({
+							interval: "MO",
+							ruleType: ByRule.BYDAY,
+						} as StrippedEntity<AdvancedRepeatRule>),
+					],
+				}),
+			)
+			o(occurrences.slice(0, 5)).deepEquals([
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 1,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 3,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 4,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 10,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 11,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+			])
+		})
+		o("monthly never ends with by rules", function () {
+			const now = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 0,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const eventStart = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 12,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const eventEnd = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 14,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const occurrences = iterateAlarmOccurrences(
+				now,
+				timeZone,
+				eventStart,
+				eventEnd,
+				StandardAlarmInterval.ONE_HOUR,
+				timeZone,
+				10,
+				createCalendarRepeatRule({
+					timeZone: timeZone,
+					frequency: RepeatPeriod.MONTHLY,
+					interval: String(1),
+					endValue: null,
+					endType: "0",
+					excludedDates: [],
+					advancedRules: [
+						createAdvancedRepeatRule({
+							interval: "TU",
+							ruleType: ByRule.BYDAY,
+						} as StrippedEntity<AdvancedRepeatRule>),
+						createAdvancedRepeatRule({
+							interval: "MO",
+							ruleType: ByRule.BYDAY,
+						} as StrippedEntity<AdvancedRepeatRule>),
+					],
+				}),
+			)
+			o(occurrences.slice(0, 5)).deepEquals([
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 1,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 3,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 4,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 10,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 11,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+			])
+		})
+		o("monthly never ends on firsth monday", function () {
+			const now = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 0,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const eventStart = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 12,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const eventEnd = DateTime.fromObject(
+				{
+					year: 2025,
+					month: 2,
+					day: 1,
+					hour: 14,
+				},
+				{ zone: timeZone },
+			).toJSDate()
+			const occurrences = iterateAlarmOccurrences(
+				now,
+				timeZone,
+				eventStart,
+				eventEnd,
+				StandardAlarmInterval.ONE_HOUR,
+				timeZone,
+				10,
+				createCalendarRepeatRule({
+					timeZone: timeZone,
+					frequency: RepeatPeriod.MONTHLY,
+					interval: String(1),
+					endValue: null,
+					endType: "0",
+					excludedDates: [],
+					advancedRules: [
+						createAdvancedRepeatRule({
+							interval: "1MO",
+							ruleType: ByRule.BYDAY,
+						} as StrippedEntity<AdvancedRepeatRule>),
+					],
+				}),
+			)
+			o(occurrences.slice(0, 4)).deepEquals([
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 1,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 2,
+						day: 3,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 3,
+						day: 3,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+				DateTime.fromObject(
+					{
+						year: 2025,
+						month: 4,
+						day: 7,
+						hour: 11,
+					},
+					{ zone: timeZone },
+				).toJSDate(),
+			])
+		})
 		o("ends for all-day event correctly", function () {
 			const repeatRuleTimeZone = "Asia/Anadyr" // +12
 
@@ -603,6 +914,7 @@ o.spec("calendar utils tests", function () {
 				},
 				{ zone: timeZone },
 			).toJSDate()
+
 			// UTC date just encodes the date, whatever you pass to it. You just have to extract consistently
 			const eventStart = getAllDayDateUTC(
 				DateTime.fromObject({
@@ -630,14 +942,18 @@ o.spec("calendar utils tests", function () {
 				repeatRuleTimeZone,
 				eventStart,
 				eventEnd,
-				RepeatPeriod.DAILY,
-				1,
-				EndType.UntilDate,
-				repeatEnd.getTime(),
-				[],
 				StandardAlarmInterval.ONE_DAY,
 				timeZone,
 				10,
+				createCalendarRepeatRule({
+					timeZone: repeatRuleTimeZone,
+					frequency: RepeatPeriod.DAILY,
+					interval: String(1),
+					endValue: repeatEnd.getTime().toString(),
+					endType: EndType.UntilDate,
+					excludedDates: [],
+					advancedRules: [],
+				}),
 			)
 			o(occurrences).deepEquals([
 				DateTime.fromObject(
@@ -927,17 +1243,6 @@ o.spec("calendar utils tests", function () {
 		let eventsForDays: Map<number, Array<CalendarEvent>>
 		o.beforeEach(function () {
 			eventsForDays = new Map()
-		})
-		o("excluding an instance of a recurring event correctly removes it from the map when addDays is called again", function () {
-			const event = createEvent(getDateInZone("2023-07-20T12:00"), getDateInZone("2023-07-20T13:00"))
-			event.repeatRule = createRepeatRuleWithValues(RepeatPeriod.DAILY, 1, zone)
-			event.repeatRule.endType = EndType.Count
-			event.repeatRule.endValue = "2"
-			addDaysForRecurringEvent(eventsForDays, event, getMonthRange(getDateInZone("2023-07-01"), zone), zone)
-			o(countDaysWithEvents(eventsForDays)).equals(2)
-			event.repeatRule.excludedDates = [createTestEntity(DateWrapperTypeRef, { date: getDateInZone("2023-07-21T12:00") })]
-			addDaysForRecurringEvent(eventsForDays, event, getMonthRange(getDateInZone("2023-07-01"), zone), zone)
-			o(countDaysWithEvents(eventsForDays)).equals(1)
 		})
 		o("recurring event - short with time ", function () {
 			// event that goes on for 2 hours and repeats weekly
@@ -1537,6 +1842,7 @@ o.spec("calendar utils tests", function () {
 					createTestEntity(DateWrapperTypeRef, { date: new Date("2023-03-02T22:00:00Z") }),
 					createTestEntity(DateWrapperTypeRef, { date: new Date("2023-03-04T22:00:00Z") }),
 				],
+				advancedRules: [],
 			})
 			const progenitor = createTestEntity(CalendarEventTypeRef, {
 				startTime: new Date("2023-03-02T22:00:00Z"),
@@ -1566,6 +1872,7 @@ o.spec("calendar utils tests", function () {
 					createTestEntity(DateWrapperTypeRef, { date: new Date("2023-03-02T22:00:00Z") }),
 					createTestEntity(DateWrapperTypeRef, { date: new Date("2023-03-04T22:00:00Z") }),
 				],
+				advancedRules: [],
 			})
 			const progenitor = createTestEntity(CalendarEventTypeRef, {
 				startTime: new Date("2023-03-02T22:00:00Z"),
@@ -1599,6 +1906,7 @@ o.spec("calendar utils tests", function () {
 					// 2023-03-06T22:00:00Z not excluded
 					// 2023-03-07T22:00:00Z not excluded
 				],
+				advancedRules: [],
 			})
 			const progenitor = createTestEntity(CalendarEventTypeRef, {
 				startTime: new Date("2023-03-02T22:00:00Z"),
@@ -1691,6 +1999,7 @@ o.spec("calendar utils tests", function () {
 				),
 				timeZone: zone,
 				excludedDates: [],
+				advancedRules: [],
 			})
 			const progenitor = createTestEntity(CalendarEventTypeRef, {
 				startTime: new Date("2023-03-02T22:00:00Z"),
@@ -1701,31 +2010,32 @@ o.spec("calendar utils tests", function () {
 		})
 	})
 	o.spec("getEventType", function () {
+		let userController: UserController
+		o.beforeEach(() => {
+			const user = createTestEntity(UserTypeRef, { _id: "user-id" })
+			const userSettingsGroupRoot = createTestEntity(UserSettingsGroupRootTypeRef, { groupSettings: [] })
+			userController = makeUserController([], AccountType.PAID, undefined, false, false, user, userSettingsGroupRoot)
+		})
 		o("external gets EXTERNAL", function () {
 			const event = {}
 			const calendars: Map<string, CalendarInfo> = new Map()
 			const ownMailAddresses = []
-			const user: User = object()
-			user.accountType = AccountType.EXTERNAL
-			o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.EXTERNAL)
+			replace(userController.user, "accountType", AccountType.EXTERNAL)
+			o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.EXTERNAL)
 		})
 
 		o("if no ownergroup but organizer, gets OWN", function () {
 			const event: Partial<CalendarEvent> = { organizer: createTestEntity(EncryptedMailAddressTypeRef, { address: "my@address.to", name: "my" }) }
 			const calendars = new Map()
 			const ownMailAddresses = ["my@address.to"]
-			const user: User = object()
-			user.accountType = AccountType.PAID
-			o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.OWN)
+			o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.OWN)
 		})
 
 		o("if no ownergroup and not organizer, gets INVITE", function () {
 			const event: Partial<CalendarEvent> = { organizer: createTestEntity(EncryptedMailAddressTypeRef, { address: "no@address.to", name: "my" }) }
 			const calendars = new Map()
 			const ownMailAddresses = ["my@address.to"]
-			const user: User = object()
-			user.accountType = AccountType.PAID
-			o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.INVITE)
+			o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.INVITE)
 		})
 
 		o("event in not any of our calendars gets SHARED_RO", function () {
@@ -1735,9 +2045,7 @@ o.spec("calendar utils tests", function () {
 			}
 			const calendars = new Map()
 			const ownMailAddresses = ["my@address.to"]
-			const user: User = object()
-			user.accountType = AccountType.PAID
-			o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.SHARED_RO)
+			o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.SHARED_RO)
 		})
 
 		o("event in rw-shared calendar w/o attendees gets SHARED_RW", function () {
@@ -1755,16 +2063,14 @@ o.spec("calendar utils tests", function () {
 				}),
 			})
 			const ownMailAddresses = ["my@address.to"]
-			const user: User = object()
-			user.accountType = AccountType.PAID
-			user.memberships = [
+			replace(userController.user, "_id", ["userList", "userId"])
+			replace(userController.user, "memberships", [
 				createTestEntity(GroupMembershipTypeRef, {
 					group: "calendarGroup",
 					capability: ShareCapability.Write,
 				}),
-			]
-			replace(user, "_id", ["userList", "userId"])
-			o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.SHARED_RW)
+			])
+			o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.SHARED_RW)
 		})
 
 		o("event in rw-shared calendar w attendees gets LOCKED", function () {
@@ -1787,16 +2093,15 @@ o.spec("calendar utils tests", function () {
 				}),
 			})
 			const ownMailAddresses = ["my@address.to"]
-			const user: User = object()
-			user.accountType = AccountType.PAID
-			user.memberships = [
+
+			replace(userController.user, "_id", ["userList", "userId"])
+			replace(userController.user, "memberships", [
 				createTestEntity(GroupMembershipTypeRef, {
 					group: "calendarGroup",
 					capability: ShareCapability.Write,
 				}),
-			]
-			replace(user, "_id", ["userList", "userId"])
-			o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.LOCKED)
+			])
+			o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.LOCKED)
 		})
 
 		o("event with ownergroup in own calendar where we're organizer gets OWN", function () {
@@ -1819,11 +2124,8 @@ o.spec("calendar utils tests", function () {
 				}),
 			})
 			const ownMailAddresses = ["my@address.to"]
-			const user: User = object()
-			user.accountType = AccountType.PAID
-			user.memberships = []
-			replace(user, "_id", ["userList", "userId"])
-			o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.OWN)
+			replace(userController.user, "_id", ["userList", "userId"])
+			o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.OWN)
 		})
 	})
 
@@ -1845,16 +2147,19 @@ o.spec("calendar utils tests", function () {
 			}),
 		})
 		const ownMailAddresses = ["my@address.to"]
-		const user: User = object()
-		user.accountType = AccountType.PAID
-		user.memberships = [
-			createTestEntity(GroupMembershipTypeRef, {
-				group: "calendarGroup",
-				capability: ShareCapability.Read,
-			}),
-		]
+		const user = createTestEntity(UserTypeRef, {
+			_id: "user-id",
+			memberships: [
+				createTestEntity(GroupMembershipTypeRef, {
+					group: "calendarGroup",
+					capability: ShareCapability.Read,
+				}),
+			],
+		})
 		replace(user, "_id", ["userList", "userId"])
-		o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.SHARED_RO)
+		const userSettingsGroupRoot = createTestEntity(UserSettingsGroupRootTypeRef, { groupSettings: [] })
+		const userController = makeUserController([], AccountType.PAID, undefined, false, false, user, userSettingsGroupRoot)
+		o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.SHARED_RO)
 	})
 
 	o("event with ownergroup in own calendar and a different organizer gets INVITE", function () {
@@ -1875,11 +2180,13 @@ o.spec("calendar utils tests", function () {
 			}),
 		})
 		const ownMailAddresses = ["my@address.to"]
-		const user: User = object()
-		user.accountType = AccountType.PAID
-		user.memberships = []
+		const user = createTestEntity(UserTypeRef, {
+			_id: "user-id",
+		})
 		replace(user, "_id", ["userList", "userId"])
-		o(getEventType(event, calendars, ownMailAddresses, user)).equals(EventType.INVITE)
+		const userSettingsGroupRoot = createTestEntity(UserSettingsGroupRootTypeRef, { groupSettings: [] })
+		const userController = makeUserController([], AccountType.PAID, undefined, false, false, user, userSettingsGroupRoot)
+		o(getEventType(event, calendars, ownMailAddresses, userController)).equals(EventType.INVITE)
 	})
 
 	o.spec("parseAlarmInterval", () => {
@@ -1916,21 +2223,15 @@ function iterateAlarmOccurrences(
 	timeZone: string,
 	eventStart: Date,
 	eventEnd: Date,
-	repeatPeriod: RepeatPeriod,
-	interval: number,
-	endType: EndType,
-	endValue: number,
-	exclusions: Array<Date>,
 	alarmInterval: AlarmInterval,
 	calculationZone: string,
 	maxOccurrences: number,
+	repeatRule: RepeatRule,
 ): Date[] {
 	const occurrences: Date[] = []
 
 	while (occurrences.length < maxOccurrences) {
-		const next: AlarmOccurrence = neverNull(
-			findNextAlarmOccurrence(now, timeZone, eventStart, eventEnd, repeatPeriod, interval, endType, endValue, exclusions, alarmInterval, calculationZone),
-		)
+		const next: AlarmOccurrence = neverNull(findNextAlarmOccurrence(now, timeZone, eventStart, eventEnd, alarmInterval, calculationZone, repeatRule))
 
 		if (next) {
 			occurrences.push(next.alarmTime)

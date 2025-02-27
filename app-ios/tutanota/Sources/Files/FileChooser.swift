@@ -1,5 +1,6 @@
 import Photos
 import PhotosUI
+import TutanotaSharedFramework
 import UIKit
 
 /// Utility class which shows pickers for files.
@@ -9,11 +10,9 @@ class TUTFileChooser: NSObject, UIImagePickerControllerDelegate, UINavigationCon
 	private var sourceController: UIViewController
 	private var cameraImage: UIImage
 	private var photoLibImage: UIImage
-	private var attachmentTypeMenu: UIDocumentMenuViewController?
 	private var imagePickerController: UIImagePickerController
 	private var supportedUTIs: [String]
 	private var resultHandler: ResponseCallback<[String]>?
-	private var popOverPresentationController: UIPopoverPresentationController?
 
 	init(viewController: UIViewController) {
 		supportedUTIs = ["public.content", "public.archive", "public.data"]
@@ -25,69 +24,70 @@ class TUTFileChooser: NSObject, UIImagePickerControllerDelegate, UINavigationCon
 		imagePickerController.delegate = self
 	}
 
-	@MainActor public func open(withAnchorRect anchorRect: CGRect) async throws -> [String] {
+	@MainActor public func open(withAnchorRect anchorRect: CGRect, isFileOnly: Bool) async throws -> [String] {
 		if let previousHandler = resultHandler {
 			TUTSLog("Another file picker is already open?")
 			sourceController.dismiss(animated: true, completion: nil)
 			previousHandler(.success([]))
 		}
 
-		let attachmentTypeMenu = UIDocumentMenuViewController(documentTypes: supportedUTIs, in: UIDocumentPickerMode.import)
+		var attachmentTypeMenu: UIDocumentMenuViewController?
+		var filePicker: UIDocumentPickerViewController?
 
-		self.attachmentTypeMenu = attachmentTypeMenu
-
-		attachmentTypeMenu.delegate = self
+		if isFileOnly {
+			filePicker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType.content, UTType.archive, UTType.data], asCopy: true)
+			filePicker!.delegate = self
+		} else {
+			attachmentTypeMenu = UIDocumentMenuViewController(documentTypes: supportedUTIs, in: UIDocumentPickerMode.import)
+			attachmentTypeMenu!.popoverPresentationController?.sourceView = sourceController.view
+			attachmentTypeMenu!.popoverPresentationController?.sourceRect = anchorRect
+			attachmentTypeMenu!.delegate = self
+		}
 
 		// add menu item for selecting images from photo library.
 		// according to developer documentation check if the source type is available first https://developer.apple.com/reference/uikit/uiimagepickercontroller
-		if UIImagePickerController.isSourceTypeAvailable(.savedPhotosAlbum) {
-			if UIDevice.current.userInterfaceIdiom == UIUserInterfaceIdiom.pad {
-				attachmentTypeMenu.modalPresentationStyle = .popover
-				popOverPresentationController = attachmentTypeMenu.popoverPresentationController
-				popOverPresentationController?.permittedArrowDirections = [.up, .down]
-				popOverPresentationController?.sourceView = sourceController.view
-				popOverPresentationController?.sourceRect = anchorRect
-			}
+		if !isFileOnly && UIImagePickerController.isSourceTypeAvailable(.savedPhotosAlbum) {
 			let photosLabel = translate("TutaoChoosePhotosAction", default: "Photos")
-			attachmentTypeMenu.addOption(
-				withTitle: photosLabel,
-				image: photoLibImage,
-				order: .first,
-				handler: { [weak self] in
-					// capture the weak reference to avoid reference self
-					guard let self else { return }
+			attachmentTypeMenu!
+				.addOption(
+					withTitle: photosLabel,
+					image: photoLibImage,
+					order: .first,
+					handler: { [weak self] in
+						// capture the weak reference to avoid reference self
+						guard let self else { return }
 
-					// No need to ask for permissions with new picker
-					if #available(iOS 14.0, *) {
-						self.showPhpicker(anchor: anchorRect)
-					} else {
-						// ask for permission because of changed behaviour in iOS 11
-						if PHPhotoLibrary.authorizationStatus() == .notDetermined {
-							PHPhotoLibrary.requestAuthorization({ status in
-								if status == .authorized { self.showLegacyImagePicker(anchor: anchorRect) } else { self.sendResult(filePath: nil) }
-							})
-						} else if PHPhotoLibrary.authorizationStatus() == .authorized {
-							self.showLegacyImagePicker(anchor: anchorRect)
+						// No need to ask for permissions with new picker
+						if #available(iOS 14.0, *) {
+							self.showPhpicker(anchor: anchorRect)
 						} else {
-							self.showPermissionDeniedDialog()
+							// ask for permission because of changed behaviour in iOS 11
+							if PHPhotoLibrary.authorizationStatus() == .notDetermined {
+								PHPhotoLibrary.requestAuthorization({ status in
+									if status == .authorized { self.showLegacyImagePicker(anchor: anchorRect) } else { self.sendResult(filePath: nil) }
+								})
+							} else if PHPhotoLibrary.authorizationStatus() == .authorized {
+								self.showLegacyImagePicker(anchor: anchorRect)
+							} else {
+								self.showPermissionDeniedDialog()
+							}
 						}
 					}
-				}
-			)
+				)
 		}
 
 		// add menu item for opening the camera and take a photo or video.
 		// according to developer documentation check if the source type is available first https://developer.apple.com/reference/uikit/uiimagepickercontroller
-		if UIImagePickerController.isSourceTypeAvailable(.camera) {
+		if !isFileOnly && UIImagePickerController.isSourceTypeAvailable(.camera) {
 			let cameraLabel = translate("TutaoShowCameraAction", default: "Camera")
 
 			// capture the weak reference to avoid reference cycle
-			attachmentTypeMenu.addOption(withTitle: cameraLabel, image: cameraImage, order: .first) { [weak self] in self?.openCamera() }
+			attachmentTypeMenu!.addOption(withTitle: cameraLabel, image: cameraImage, order: .first) { [weak self] in self?.openCamera() }
 		}
 
 		return try await withCheckedThrowingContinuation { continuation in
 			resultHandler = continuation.resume(with:)
-			sourceController.present(attachmentTypeMenu, animated: true, completion: nil)
+			sourceController.present((isFileOnly ? filePicker : attachmentTypeMenu)!, animated: true, completion: nil)
 		}
 	}
 

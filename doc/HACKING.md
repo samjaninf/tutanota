@@ -44,11 +44,12 @@ contains most of the logic for server communication, encryption, indexing etc.
 ### Communication
 
 Worker, main thread & apps communicate through the messages. Protocol is described in the
-[RemoteMessageDispatcher](../src/api/common/MessageDispatcher.js). See [WorkerClient](../src/api/main/WorkerClient.js)
+[RemoteMessageDispatcher](../src/common/api/common/threading/MessageDispatcher.ts).
+See [WorkerClient](../src/common/api/main/WorkerClient.ts)
 and
-[WorkerImpl](../src/api/worker/WorkerImpl.js) for the client and server part.
+[WorkerImpl](../src/common/api/worker/WorkerImpl.ts) for the client and server part.
 
-Native code communicates through the [NativeInterface](../src/native/common/NativeInterface.js).
+Native code communicates through the [NativeInterface](../src/common/native/common/NativeInterface.ts).
 
 ### UI code
 
@@ -92,11 +93,11 @@ One level below `EntityWorker` lays `EntityRestInterface` which is either `Entit
 currently. Caches saves requested entities is the memory and updates them with WebSocket events.
 
 If you're listening for WebSocket updates in the worker part (and you should justify doing that) then you should change
-[EventBus](../src/api/worker/EventBusClient.js) to do that. For the main thread you can subscribe to the
-[EventController](../src/api/main/EventController.js).
+[EventBus](../src/common/api/worker/EventBusClient.ts) to do that. For the main thread you can subscribe to the
+[EventController](../src/common/api/main/EventController.ts).
 
 `EventBus` and `EntityRestClient` make sure that entities are automatically encrypted/decrypted when needed. See
-[decryptAndMapToInstance()](../src/api/worker/crypto/CryptoFacade.js).
+[decryptAndMapToInstance()](../src/common/api/worker/crypto/CryptoFacade.ts).
 
 #### Entity updates
 
@@ -106,13 +107,89 @@ tp stay up-to-date with the server (for caching and indexing).
 
 ## Workflow and Testing
 
+See [HACKING](./HACKING.md) for build pre-requisites.
+
+Prepare the project:
+
+1. Clone the repository: `git clone https://github.com/tutao/tutanota.git`
+2. Switch into the repository directory: `cd tutanota`
+3. Initialize liboqs and argon2 submodules: `git submodule init`
+4. Synchronize submodules: `git submodule sync --recursive`
+5. Update submodules: `git submodule update`
+6. Run `npm ci` to install dependencies.
+
+To build the web client without specific target (will use browser URL as an API endpoint).
+
 ```bash
 node make
 ```
 
-Start any web server serving `build` directory, and you should be good to go.
+You can run `node make prod` to run it against the production server.
 
-To run tests:
+Start any web server serving `build` directory, and you should be good to go. e.g.
+
+```bash
+npx serve build -s -p 9000` or `python -m SimpleHTTPServer 9000
+```
+
+To build desktop client against the production server:
+
+```bash
+node make -d prod
+```
+
+## Android app
+
+Prerequisites:
+
+You need to have Android SDK and NDK (26.1.10909125). The simplest way it to use Android studio but anything that can
+run Gradle will do.
+
+To build Android app against production server you first need to build webapp (like `node make prod`) and then build
+the Android app like you would normally (e.g. import the project under `android-app` in Android Studio, run the `app`
+target for the mail app).
+
+For building calendar app run `node make prod -a calendar instead.
+
+## iOS app
+
+Prerequisites:
+
+You need XCode, xcodegen.
+You might need swiftlint swift-format.
+You can install them through homebrew.
+
+To build iOS app, build the web part (`node make prod`). Then generate iOS projects:
+
+```bash
+pushd tuta-sdk/ios # go into SDK directory
+xcodegen # generate XCode project
+popd # go back
+
+mkdir -p build
+mkdir -p build-calendar-app
+
+cd app-ios # go into iOS app directory, generate projects for both apps
+xcodegen --spec calendar-project.yml
+xcodegen --spec mail-project.yml
+```
+
+After that you can open `app-ios/tuta.xcworkspace` in XCode and build the mail app.
+
+For building calendar app run `node make prod -a calenar` instead.
+
+### Tests
+
+To run sdk and node mimimi test:
+
+```bash
+cargo test --all
+# Some sdk & node mimimi test requires actual local http server running, as we do not have "mock" server yet
+# If on dev-machine, to run test including tests that requires local http server running:
+cargo test --all --features test-with-local-http-server
+```
+
+To run all TypeScript tests:
 
 ```bash
 npm test

@@ -1,29 +1,26 @@
 plugins {
 	id 'com.android.application'
 	id 'kotlin-android'
-	id "org.jetbrains.kotlin.kapt"
 	id 'org.jetbrains.kotlin.plugin.serialization' version '1.9.21'
+	id 'com.google.devtools.ksp'
 }
 
+group = "de.tutao"
+
 android {
-	compileSdkVersion 33
 	defaultConfig {
+		compileSdk 34
 		applicationId "de.tutao.tutanota"
-		minSdkVersion 23
-		targetSdkVersion 33
-		versionCode 396307
-		versionName "218.240219.0"
+		minSdkVersion 26
+		targetSdkVersion 34
+		versionCode 396459
+		versionName "271.250227.0"
 		testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-		javaCompileOptions {
-			annotationProcessorOptions {
-				arguments += ["room.schemaLocation": "$projectDir/schemas".toString()]
-			}
-		}
-		externalNativeBuild {
-			cmake {
-				cppFlags ''
-			}
+		// https://issuetracker.google.com/issues/181593646
+		ksp {
+			arg("room.schemaLocation", "$projectDir/schemas".toString())
+			arg("room.generateKotlin", "true")
 		}
 	}
 	signingConfigs {
@@ -38,7 +35,7 @@ android {
 			enableV2Signing = true
 		}
 	}
-	flavorDimensions 'releaseType'
+	flavorDimensions = ['releaseType']
 	productFlavors {
 		tutao {
 			signingConfig signingConfigs.release
@@ -48,41 +45,58 @@ android {
 	}
 	buildTypes {
 		debug {
+			resValue("string", "package_name", "de.tutao.tutanota.debug")
+			resValue("string", "account_type", "de.tutao.tutanota.debug")
 			manifestPlaceholders = [contentProviderAuthority: 'de.tutao.fileprovider.debug']
 			applicationIdSuffix ".debug"
+			jniDebuggable true
 		}
 		release {
 			minifyEnabled true
+			resValue("string", "package_name", "de.tutao.tutanota")
+			resValue("string", "account_type", "de.tutao.tutanota")
 			proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
 			manifestPlaceholders = [contentProviderAuthority: 'de.tutao.fileprovider']
 		}
 		releaseTest {
 			initWith release
 			minifyEnabled true
+			resValue("string", "package_name", "de.tutao.tutanota.test")
+			resValue("string", "account_type", "de.tutao.tutanota.test")
 			proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
 			manifestPlaceholders = [contentProviderAuthority: 'de.tutao.fileprovider.test']
 			applicationIdSuffix ".test"
 		}
 	}
 
-	applicationVariants.all { variant ->
-		variant.outputs.all { output ->
+	buildFeatures {
+		buildConfig = true
+	}
+
+	applicationVariants.configureEach { variant ->
+		variant.outputs.configureEach { output ->
 			def flavor = variant.productFlavors[0].name
-			outputFileName = "tutanota-$flavor-${variant.buildType.name}-${variant.versionName}.apk"
+			outputFileName = "tutanota-app-$flavor-${variant.buildType.name}-${variant.versionName}.apk"
 		}
 	}
 
 	buildTypes.each {
 		it.buildConfigField 'String', 'FILE_PROVIDER_AUTHORITY', '"' + it.manifestPlaceholders['contentProviderAuthority'] + '"'
 		// keep in sync with src/native/main/NativePushServiceApp.ts
-		it.buildConfigField 'String', "SYS_MODEL_VERSION", '"85"'
+		it.buildConfigField 'String', "SYS_MODEL_VERSION", '"119"'
+		it.buildConfigField 'String', "TUTANOTA_MODEL_VERSION", '"80"'
 		it.buildConfigField 'String', 'RES_ADDRESS', '"tutanota"'
 	}
 
 	compileOptions {
-		sourceCompatibility JavaVersion.VERSION_1_8
-		targetCompatibility JavaVersion.VERSION_1_8
+		sourceCompatibility = JavaVersion.VERSION_17
+		targetCompatibility = JavaVersion.VERSION_17
 	}
+
+	kotlinOptions {
+		jvmTarget = "17"
+	}
+
 	packagingOptions {
 		resources {
 			excludes += ['META-INF/LICENSE', 'META-INF/ASL2.0']
@@ -92,21 +106,11 @@ android {
 		disable 'MissingTranslation'
 	}
 
-	sourceSets {
-		// Adds exported schema location as test app assets.
-		androidTest.assets.srcDirs += files("$projectDir/schemas".toString())
-	}
-
 	namespace 'de.tutao.tutanota'
-	externalNativeBuild {
-		cmake {
-			path file('src/main/cpp/CMakeLists.txt')
-			version "3.18.0+"
-		}
-	}
+	ndkVersion '26.1.10909125'
 }
 
-tasks.withType(Test) {
+tasks.withType(Test).configureEach {
 	testLogging {
 		exceptionFormat "full"
 		events "started", "skipped", "passed", "failed"
@@ -114,62 +118,69 @@ tasks.withType(Test) {
 	}
 }
 
+
 dependencies {
-	def room_version = "2.4.2"
-	def lifecycle_version = "2.4.1"
-	def activity_version = "1.4.0"
+	def room_version = '2.6.1'
+	def lifecycle_version = '2.8.3'
+	def activity_version = '1.9.0'
+	def coroutines_version = '1.8.1'
 
-	// Important: cannot be updated without additional measures as Android 6 and 7 do not have Java 9
-	//noinspection GradleDependency
-	implementation 'commons-io:commons-io:2.5'
+	implementation "de.tutao:tutasdk"
+	implementation project(':tutashared')
 
-	implementation "androidx.core:core-ktx:1.8.0"
+	implementation 'commons-io:commons-io:2.16.1'
+
+	implementation 'androidx.core:core-ktx:1.13.1'
 	implementation "androidx.activity:activity-ktx:$activity_version"
-	implementation "androidx.browser:browser:1.3.0"
+	implementation "androidx.browser:browser:1.8.0"
 	implementation "androidx.biometric:biometric:1.1.0"
-	implementation "androidx.core:core-splashscreen:1.0.0"
+	implementation "androidx.core:core-splashscreen:1.0.1"
+	implementation "androidx.datastore:datastore-preferences:1.1.1"
 
-	if (file("../libs/android-database-sqlcipher-4.5.0.aar").exists()) {
-		implementation fileTree(include: ['*.aar'], dir: '../libs')
+	implementation "androidx.room:room-ktx:$room_version"
+	ksp "androidx.room:room-compiler:$room_version"
+
+	if (file("../libs/sqlcipher-android-4.6.0.aar").exists()) {
+		logger.lifecycle("Using prebuild sqlcipher file in ../libs")
+		// "Direct local .aar file dependencies are not supported when building an AAR. The resulting AAR would be
+		// broken because the classes and Android resources from any local .aar file dependencies would not be packaged
+		// in the resulting AAR. Previous versions of the Android Gradle Plugin produce broken AARs in this case too
+		// (despite not throwing this error)."
+		implementation(files("../libs/sqlcipher-android-4.6.0.aar"))
 	} else {
-		implementation "net.zetetic:android-database-sqlcipher:4.5.0"
+		logger.lifecycle("Using sqlcipher from remote repository")
+		implementation("net.zetetic:sqlcipher-android:4.6.0@aar")
 	}
-	implementation "androidx.sqlite:sqlite:2.0.1"
 
-	implementation "androidx.room:room-runtime:$room_version"
-	// For Kotlin use kapt instead of annotationProcessor
-	kapt "androidx.room:room-compiler:$room_version"
+	implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.3'
 
-	if (file("../libs/android-database-sqlcipher-4.5.0.aar").exists()) {
-		implementation fileTree(include: ['*.aar'], dir: '../libs')
-	} else {
-		implementation "net.zetetic:android-database-sqlcipher:4.5.0"
-	}
-	implementation "androidx.sqlite:sqlite:2.0.1"
-
-	implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.4.1'
-	implementation "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycle_version"
-
-	implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2"
+	implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1'
 	implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
-	implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.0'
+	implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutines_version"
 
 	// TLS1.3 backwards compatibility for Android < 10
 	implementation 'org.conscrypt:conscrypt-android:2.5.2'
-	implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+	implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
+	implementation 'net.java.dev.jna:jna:5.14.0@aar'
 
 	testImplementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
-	testImplementation 'androidx.test.ext:junit-ktx:1.1.3'
+	testImplementation 'androidx.test.ext:junit-ktx:1.2.1'
 	testImplementation 'junit:junit:4.13.2'
-	testImplementation "org.robolectric:robolectric:4.8.1"
-	testImplementation "org.mockito.kotlin:mockito-kotlin:4.0.0"
+	testImplementation 'org.robolectric:robolectric:4.13'
+	testImplementation 'org.mockito.kotlin:mockito-kotlin:5.4.0'
+	// JVM-based unit tests (that don't need a real device or emulator)
+	testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:$coroutines_version"
 
-	androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
-	androidTestImplementation 'androidx.test:runner:1.4.0'
-	androidTestImplementation 'androidx.test.ext:junit-ktx:1.1.3'
-	androidTestImplementation 'androidx.test:rules:1.4.0'
-	androidTestImplementation "org.mockito:mockito-android:4.5.1"
-	androidTestImplementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
-	androidTestImplementation 'androidx.room:room-testing:2.4.2'
+	androidTestImplementation("com.linkedin.dexmaker:dexmaker-mockito-inline-extended:2.28.1") {
+		exclude group: 'org.mockito', module: 'mockito-core'
+	}
+	androidTestImplementation "org.mockito:mockito-core:5.15.2"
+	androidTestImplementation "org.mockito.kotlin:mockito-kotlin:5.4.0"
+	androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+	androidTestImplementation 'androidx.test:runner:1.6.1'
+	androidTestImplementation 'androidx.test.ext:junit-ktx:1.2.1'
+	androidTestImplementation 'androidx.test:rules:1.6.1'
+	androidTestImplementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+	androidTestImplementation 'androidx.room:room-testing:2.6.1'
 }

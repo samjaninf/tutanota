@@ -1,4 +1,4 @@
-import { EntityRestClient, getIds } from "../../../../../src/api/worker/rest/EntityRestClient.js"
+import { EntityRestClient, EntityRestClientLoadOptions, getIds } from "../../../../../src/common/api/worker/rest/EntityRestClient.js"
 import {
 	compareNewestFirst,
 	compareOldestFirst,
@@ -8,14 +8,14 @@ import {
 	getListId,
 	listIdPart,
 	timestampToGeneratedId,
-} from "../../../../../src/api/common/utils/EntityUtils.js"
-import { _verifyType, resolveTypeReference } from "../../../../../src/api/common/EntityFunctions.js"
-import { NotFoundError } from "../../../../../src/api/common/error/RestError.js"
+} from "../../../../../src/common/api/common/utils/EntityUtils.js"
+import { _verifyType, resolveTypeReference } from "../../../../../src/common/api/common/EntityFunctions.js"
+import { NotFoundError } from "../../../../../src/common/api/common/error/RestError.js"
 import { downcast, TypeRef } from "@tutao/tutanota-utils"
-import type { BlobElementEntity, ElementEntity, ListElementEntity, SomeEntity } from "../../../../../src/api/common/EntityTypes.js"
-import { InstanceMapper } from "../../../../../src/api/worker/crypto/InstanceMapper.js"
-import { AuthDataProvider } from "../../../../../src/api/worker/facades/UserFacade.js"
-import { Type } from "../../../../../src/api/common/EntityConstants"
+import type { BlobElementEntity, ElementEntity, ListElementEntity, SomeEntity } from "../../../../../src/common/api/common/EntityTypes.js"
+import { InstanceMapper } from "../../../../../src/common/api/worker/crypto/InstanceMapper.js"
+import { AuthDataProvider } from "../../../../../src/common/api/worker/facades/UserFacade.js"
+import { Type } from "../../../../../src/common/api/common/EntityConstants.js"
 
 const authDataProvider: AuthDataProvider = {
 	createAuthHeaders(): Dict {
@@ -99,7 +99,7 @@ export class EntityRestClientMock extends EntityRestClient {
 		}
 	}
 
-	async load<T extends SomeEntity>(typeRef: TypeRef<T>, id: T["_id"], queryParameters?: Dict | null | undefined, extraHeaders?: Dict): Promise<T> {
+	async load<T extends SomeEntity>(_typeRef: TypeRef<T>, id: T["_id"], _opts: EntityRestClientLoadOptions = {}): Promise<T> {
 		if (id instanceof Array && id.length === 2) {
 			// list element request
 			const listId = id[0]
@@ -170,14 +170,14 @@ export class EntityRestClientMock extends EntityRestClient {
 		}
 	}
 
-	erase<T extends SomeEntity>(instance: T): Promise<void> {
-		return resolveTypeReference(instance._type).then((typeModel) => {
-			_verifyType(typeModel)
+	async erase<T extends SomeEntity>(instance: T): Promise<void> {
+		const typeModel = await resolveTypeReference(instance._type)
+		_verifyType(typeModel)
 
-			const ids = getIds(instance, typeModel)
+		const ids = getIds(instance, typeModel)
 
-			this._handleDelete(ids.id, ids.listId)
-		})
+		this._handleDelete(ids.id, ids.listId)
+		return Promise.resolve()
 	}
 
 	setup<T extends SomeEntity>(listId: Id | null | undefined, instance: T, extraHeaders?: Dict): Promise<Id> {

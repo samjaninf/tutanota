@@ -1,13 +1,12 @@
 import o from "@tutao/otest"
-import { CustomColorsEditorViewModel } from "../../../../src/settings/whitelabel/CustomColorsEditorViewModel.js"
-import { ThemeController } from "../../../../src/gui/ThemeController.js"
-import { createWhitelabelConfig, DomainInfoTypeRef, WhitelabelConfigTypeRef } from "../../../../src/api/entities/sys/TypeRefs.js"
-import { createDomainInfo } from "../../../../src/api/entities/sys/TypeRefs.js"
+import { CustomColorsEditorViewModel } from "../../../../src/common/settings/whitelabel/CustomColorsEditorViewModel.js"
+import { ThemeController } from "../../../../src/common/gui/ThemeController.js"
+import { DomainInfoTypeRef, WhitelabelConfigTypeRef } from "../../../../src/common/api/entities/sys/TypeRefs.js"
 import { downcast } from "@tutao/tutanota-utils"
-import type { ThemeCustomizations } from "../../../../src/misc/WhitelabelCustomizations.js"
-import { EntityClient } from "../../../../src/api/common/EntityClient.js"
-import { themes } from "../../../../src/gui/builtinThemes.js"
-import type { LoginController } from "../../../../src/api/main/LoginController.js"
+import type { ThemeCustomizations } from "../../../../src/common/misc/WhitelabelCustomizations.js"
+import { EntityClient } from "../../../../src/common/api/common/EntityClient.js"
+import { themes } from "../../../../src/common/gui/builtinThemes.js"
+import type { LoginController } from "../../../../src/common/api/main/LoginController.js"
 import { spy } from "@tutao/tutanota-test-utils"
 import { createTestEntity } from "../../TestUtils.js"
 
@@ -19,11 +18,11 @@ o.spec("SimpleColorEditor", function () {
 	let defaultTheme
 	// These customizations should always be set if no changes are made
 	const defaultCustomizations: ThemeCustomizations = downcast({
-		list_accent_fg: "#840010",
-		content_accent: "#840010",
-		content_button_selected: "#840010",
-		navigation_button_selected: "#840010",
-		header_button_selected: "#840010",
+		list_accent_fg: "#850122",
+		content_accent: "#850122",
+		content_button_selected: "#850122",
+		navigation_button_selected: "#850122",
+		header_button_selected: "#850122",
 		base: "light",
 	})
 	let entityClient: EntityClient
@@ -34,7 +33,7 @@ o.spec("SimpleColorEditor", function () {
 		themeController = {
 			applyCustomizations: spy(),
 			getDefaultTheme: () => {
-				return themes["light"]
+				return themes()["light"]
 			},
 		} as Partial<ThemeController> as ThemeController
 		whitelabelConfig = createTestEntity(WhitelabelConfigTypeRef)
@@ -62,7 +61,7 @@ o.spec("SimpleColorEditor", function () {
 				entityClient,
 				loginController,
 			)
-			o(model.accentColor).equals("#840010")
+			o(model.accentColor).equals("#850122")
 			o(model.baseThemeId).equals("light")
 			o(themeController.applyCustomizations.callCount).equals(1)
 		})

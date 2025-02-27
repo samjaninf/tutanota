@@ -1,9 +1,9 @@
 import o from "@tutao/otest"
 import { func, instance, when } from "testdouble"
 import { verify } from "@tutao/tutanota-test-utils"
-import { LateInitializedCacheStorageImpl, OfflineStorageArgs } from "../../../../../src/api/worker/rest/CacheStorageProxy.js"
-import { OfflineStorage } from "../../../../../src/api/worker/offline/OfflineStorage.js"
-import { WorkerImpl } from "../../../../../src/api/worker/WorkerImpl.js"
+import { LateInitializedCacheStorageImpl, OfflineStorageArgs } from "../../../../../src/common/api/worker/rest/CacheStorageProxy.js"
+import { OfflineStorage } from "../../../../../src/common/api/worker/offline/OfflineStorage.js"
+import { WorkerImpl } from "../../../../../src/mail-app/workerUtils/worker/WorkerImpl.js"
 
 o.spec("CacheStorageProxy", function () {
 	const userId = "userId"
@@ -20,7 +20,9 @@ o.spec("CacheStorageProxy", function () {
 		offlineStorageMock = instance(OfflineStorage)
 		offlineStorageProviderMock = func() as () => Promise<null | OfflineStorage>
 
-		proxy = new LateInitializedCacheStorageImpl(workerMock, offlineStorageProviderMock)
+		proxy = new LateInitializedCacheStorageImpl(async (error: Error) => {
+			await workerMock.sendError(error)
+		}, offlineStorageProviderMock)
 	})
 
 	o.spec("initialization", function () {

@@ -1,7 +1,7 @@
 NSCameraUsageDescription = "Fă o poză sau un video pentru a le atașa.";
 NSPhotoLibraryUsageDescription = "Atașează o poză din galerie.";
 NSMicrophoneUsageDescription = "Folosit când înregistrezi un video pentru a-l atașa.";
-NSContactsUsageDescription = "Caută adresa de e-mail în contacte.";
+NSContactsUsageDescription = "1. Caută adresa de e-mail a destinatarului în contacte.\n2. Facultativ, sincronează contactele Tuta cu aparatul tău.";
 NSRemindersUsageDescription = "Afișează notificări atunci când sosesc mesaje noi.";
 TutaoShowCameraAction = "Camera";
 TutaoChoosePhotosAction = "Fotografii";
@@ -12,3 +12,6 @@ TutaoSettingsAction = "Opțiuni";
 TutaoCalendarAlarmTitle = "Reamintire";
 TutaoScheduleAlarmError = "Alarma nu a putut fi pusă. Actualizează aplicația.";
 TutaoUnlockCredentialsAction = "Deblochează datele de autentificare";
+TutaoPushNewMail = "E-mail nou primit.";
+TutaoDeleteAction = "Șterge";
+TutaoMarkReadAction = "Marchează ca citit.";

@@ -1,21 +1,21 @@
 import o from "@tutao/otest"
-import { createDataFile } from "../../../../src/api/common/DataFile.js"
-import { DesktopFileFacade } from "../../../../src/desktop/files/DesktopFileFacade.js"
-import { ApplicationWindow } from "../../../../src/desktop/ApplicationWindow.js"
-import { matchers, object, verify, when } from "testdouble"
-import { DesktopNetworkClient } from "../../../../src/desktop/net/DesktopNetworkClient.js"
-import { ElectronExports, FsExports } from "../../../../src/desktop/ElectronExportTypes.js"
-import { PreconditionFailedError, TooManyRequestsError } from "../../../../src/api/common/error/RestError.js"
-import type http from "node:http"
+import { createDataFile } from "../../../../src/common/api/common/DataFile.js"
+import { DesktopFileFacade } from "../../../../src/common/desktop/files/DesktopFileFacade.js"
+import { ApplicationWindow } from "../../../../src/common/desktop/ApplicationWindow.js"
+import { func, matchers, object, verify, when } from "testdouble"
+import { ElectronExports, FsExports } from "../../../../src/common/desktop/ElectronExportTypes.js"
+import { NotFoundError, PreconditionFailedError, TooManyRequestsError } from "../../../../src/common/api/common/error/RestError.js"
 import type fs from "node:fs"
 import { assertThrows } from "@tutao/tutanota-test-utils"
 import n from "../../nodemocker.js"
 import { stringToUtf8Uint8Array } from "@tutao/tutanota-utils"
-import { DesktopConfig } from "../../../../src/desktop/config/DesktopConfig.js"
-import { DesktopUtils } from "../../../../src/desktop/DesktopUtils.js"
-import { DateProvider } from "../../../../src/api/common/DateProvider.js"
-import { TempFs } from "../../../../src/desktop/files/TempFs.js"
-import { BuildConfigKey, DesktopConfigKey } from "../../../../src/desktop/config/ConfigKeys.js"
+import { DesktopConfig } from "../../../../src/common/desktop/config/DesktopConfig.js"
+import { DesktopUtils } from "../../../../src/common/desktop/DesktopUtils.js"
+import { DateProvider } from "../../../../src/common/api/common/DateProvider.js"
+import { TempFs } from "../../../../src/common/desktop/files/TempFs.js"
+import { BuildConfigKey, DesktopConfigKey } from "../../../../src/common/desktop/config/ConfigKeys.js"
+import { HttpMethod } from "../../../../src/common/api/common/EntityFunctions"
+import { FetchImpl, FetchResult } from "../../../../src/common/desktop/net/NetAgent"
 
 const DEFAULT_DOWNLOAD_PATH = "/a/download/path/"
 
@@ -24,7 +24,7 @@ o.spec("DesktopFileFacade", function () {
 	let conf: DesktopConfig
 	let du: DesktopUtils
 	let dp: DateProvider
-	let net: DesktopNetworkClient
+	let fetch: FetchImpl
 	let electron: ElectronExports
 	let fs: FsExports
 	let tfs: TempFs
@@ -32,21 +32,22 @@ o.spec("DesktopFileFacade", function () {
 
 	o.beforeEach(function () {
 		win = object()
-		net = object()
+		fetch = func() as FetchImpl
 		fs = object()
 		tfs = object()
 		fs.promises = object()
+		when(fs.promises.stat(matchers.anything())).thenResolve({ size: 42 })
 		electron = object()
 		// @ts-ignore read-only prop
-		electron.shell = object()
+		electron["shell"] = object()
 		// @ts-ignore read-only prop
-		electron.dialog = object()
+		electron["dialog"] = object()
 
 		conf = object()
 		du = object()
 		dp = object()
 
-		ff = new DesktopFileFacade(win, conf, du, dp, net, electron, tfs, fs)
+		ff = new DesktopFileFacade(win, conf, dp, fetch, electron, tfs, fs)
 	})
 	o.spec("saveDataFile", function () {
 		o("when there's no existing file it will be simply written", async function () {
@@ -73,18 +74,13 @@ o.spec("DesktopFileFacade", function () {
 		o("no error", async function () {
 			const headers = { v: "foo", accessToken: "bar" }
 			const expectedFilePath = "/tutanota/tmp/path/encrypted/nativelyDownloadedFile"
-			const response: http.IncomingMessage = object() // new mocks.netMock.Response(200)
-			response.statusCode = 200
-			response.headers = {}
-			// @ts-ignore callback omit
-			when(response.on("finish")).thenCallback(undefined, undefined)
+			const response: FetchResult = mockResponse(200, { responseBody: new Uint8Array() })
 			const ws: fs.WriteStream = mockWriteStream(response)
 			when(fs.createWriteStream(expectedFilePath, { emitClose: true })).thenReturn(ws)
 			when(
-				net.executeRequest("some://url/file", {
+				fetch(urlMatches(new URL("some://url/file")), {
 					method: "GET",
 					headers,
-					timeout: 20000,
 				}),
 			).thenResolve(response)
 			// @ts-ignore callback omit
@@ -102,12 +98,13 @@ o.spec("DesktopFileFacade", function () {
 				accessToken: "bar",
 			}
 
-			const response: http.IncomingMessage = object()
-			response.statusCode = 404
 			const errorId = "123"
-			response.headers = {}
-			response.headers["error-id"] = errorId
-			when(net.executeRequest(matchers.anything(), matchers.anything())).thenResolve(response)
+			const response: FetchResult = mockResponse(NotFoundError.CODE, {
+				responseHeaders: {
+					"error-id": errorId,
+				},
+			})
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 			const result = await ff.download("some://url/file", "nativelyDownloadedFile", headers)
 
 			o(result).deepEquals({
@@ -121,14 +118,16 @@ o.spec("DesktopFileFacade", function () {
 		})
 
 		o("retry-after", async function () {
-			const response: http.IncomingMessage = object()
-			const errorId = "123"
-			response.headers = {}
-			response.headers["error-id"] = errorId
 			const retryAfter = "20"
-			response.headers["retry-after"] = retryAfter
-			response.statusCode = TooManyRequestsError.CODE
-			when(net.executeRequest(matchers.anything(), matchers.anything())).thenResolve(response)
+			const errorId = "123"
+
+			const response: FetchResult = mockResponse(TooManyRequestsError.CODE, {
+				responseHeaders: {
+					"error-id": errorId,
+					"retry-after": retryAfter,
+				},
+			})
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 
 			const headers = { v: "foo", accessToken: "bar" }
 			const result = await ff.download("some://url/file", "nativelyDownloadedFile", headers)
@@ -145,14 +144,15 @@ o.spec("DesktopFileFacade", function () {
 
 		o("suspension", async function () {
 			const headers = { v: "foo", accessToken: "bar" }
-			const response: http.IncomingMessage = object()
-			response.statusCode = TooManyRequestsError.CODE
-			response.headers = {}
 			const errorId = "123"
-			response.headers["error-id"] = errorId
 			const retryAfter = "20"
-			response.headers["suspension-time"] = retryAfter
-			when(net.executeRequest(matchers.anything(), matchers.anything())).thenResolve(response)
+			const response: FetchResult = mockResponse(TooManyRequestsError.CODE, {
+				responseHeaders: {
+					"error-id": errorId,
+					"suspension-time": retryAfter,
+				},
+			})
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 
 			const result = await ff.download("some://url/file", "nativelyDownloadedFile", headers)
 
@@ -168,14 +168,15 @@ o.spec("DesktopFileFacade", function () {
 
 		o("precondition", async function () {
 			const headers = { v: "foo", accessToken: "bar" }
-			const response: http.IncomingMessage = object()
-			response.statusCode = PreconditionFailedError.CODE
-			response.headers = {}
 			const errorId = "123"
-			response.headers["error-id"] = errorId
 			const precondition = "a.2"
-			response.headers["precondition"] = precondition
-			when(net.executeRequest(matchers.anything(), matchers.anything())).thenResolve(response)
+			const response: FetchResult = mockResponse(PreconditionFailedError.CODE, {
+				responseHeaders: {
+					"error-id": errorId,
+					precondition: precondition,
+				},
+			})
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 
 			const result = await ff.download("some://url/file", "nativelyDownloadedFile", headers)
 
@@ -189,15 +190,14 @@ o.spec("DesktopFileFacade", function () {
 			verify(fs.createWriteStream(matchers.anything(), matchers.anything()), { times: 0 })
 		})
 
-		o("IO error during download", async function () {
+		o("IO error during download leads to cleanup and error is thrown", async function () {
 			const headers = { v: "foo", accessToken: "bar" }
-			const response: http.IncomingMessage = object()
-			response.statusCode = 200
-			when(net.executeRequest(matchers.anything(), matchers.anything())).thenResolve(response)
+			const response: FetchResult = mockResponse(200, { responseBody: new Uint8Array() })
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 			const error = new Error("Test! I/O error")
 			const ws = mockWriteStream()
+			when(ws.on("finish", matchers.anything())).thenThrow(error)
 			when(fs.createWriteStream(matchers.anything(), matchers.anything())).thenReturn(ws)
-			when(response.pipe(matchers.anything())).thenThrow(error)
 			when(tfs.ensureEncryptedDir()).thenResolve("/tutanota/tmp/path/encrypted")
 
 			const e = await assertThrows(Error, () => ff.download("some://url/file", "nativelyDownloadedFile", headers))
@@ -210,25 +210,6 @@ o.spec("DesktopFileFacade", function () {
 		const fileToUploadPath = "/tutnaota/tmp/path/encrypted/toUpload.txt"
 		const targetUrl = "https://test.tutanota.com/rest/for/a/bit"
 
-		function mockResponse(statusCode: number, resOpts: { responseBody?: Uint8Array; responseHeaders?: Record<string, string> }): http.IncomingMessage {
-			const { responseBody, responseHeaders } = resOpts
-			const response: http.IncomingMessage = object()
-			response.statusCode = statusCode
-			response.headers = responseHeaders ?? {}
-			// @ts-ignore thenCallback allows not mentioning the cb?
-			when(response.on("finish")).thenCallback(undefined, undefined)
-			if (responseBody) {
-				// @ts-ignore thenCallback allows not mentioning the cb?
-				when(response.on("data")).thenCallback(responseBody)
-			} else {
-				when(response.on("data", matchers.anything)).thenReturn(response)
-			}
-
-			// @ts-ignore thenCallback allows not mentioning the cb?
-			when(response.on("end")).thenCallback(undefined, undefined)
-			return response
-		}
-
 		o("when there's no error it uploads correct data and returns the right result", async function () {
 			const body = stringToUtf8Uint8Array("BODY")
 			const response = mockResponse(200, { responseBody: body })
@@ -237,8 +218,14 @@ o.spec("DesktopFileFacade", function () {
 			}
 			const fileStreamMock = mockReadStream()
 			when(fs.createReadStream(fileToUploadPath)).thenReturn(fileStreamMock)
-			when(net.executeRequest(targetUrl, { method: "POST", headers, timeout: 20000 }, fileStreamMock)).thenResolve(response)
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, "POST", headers)
+			when(
+				fetch(urlMatches(new URL(targetUrl)), {
+					method: HttpMethod.POST,
+					headers,
+					body: fileStreamMock,
+				}),
+			).thenResolve(response)
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, headers)
 
 			o(uploadResult.statusCode).equals(200)
 			o(uploadResult.errorId).equals(null)
@@ -250,8 +237,8 @@ o.spec("DesktopFileFacade", function () {
 		o("when 404 is returned it returns correct result", async function () {
 			const errorId = "123"
 			const response = mockResponse(404, { responseHeaders: { "error-id": errorId } })
-			when(net.executeRequest(matchers.anything(), matchers.anything(), matchers.anything())).thenResolve(response)
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, "POST", {})
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
 			o(uploadResult.statusCode).equals(404)
 			o(uploadResult.errorId).equals(errorId)
 			o(uploadResult.precondition).equals(null)
@@ -268,9 +255,9 @@ o.spec("DesktopFileFacade", function () {
 					"retry-after": retryAFter,
 				},
 			})
-			when(net.executeRequest(matchers.anything(), matchers.anything(), matchers.anything())).thenResolve(response)
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, "POST", {})
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
 
 			o(uploadResult.statusCode).equals(TooManyRequestsError.CODE)
 			o(uploadResult.errorId).equals(errorId)
@@ -288,8 +275,8 @@ o.spec("DesktopFileFacade", function () {
 					"suspension-time": retryAFter,
 				},
 			})
-			when(net.executeRequest(matchers.anything(), matchers.anything(), matchers.anything())).thenResolve(response)
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, "POST", {})
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
 
 			o(uploadResult.statusCode).equals(TooManyRequestsError.CODE)
 			o(uploadResult.errorId).equals(errorId)
@@ -307,9 +294,9 @@ o.spec("DesktopFileFacade", function () {
 					precondition: precondition,
 				},
 			})
-			when(net.executeRequest(matchers.anything(), matchers.anything(), matchers.anything())).thenResolve(response)
+			when(fetch(matchers.anything(), matchers.anything())).thenResolve(response)
 
-			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, "POST", {})
+			const uploadResult = await ff.upload(fileToUploadPath, targetUrl, HttpMethod.POST, {})
 
 			o(uploadResult.statusCode).equals(PreconditionFailedError.CODE)
 			o(uploadResult.errorId).equals(errorId)
@@ -332,7 +319,12 @@ o.spec("DesktopFileFacade", function () {
 
 		o("open on windows", async function () {
 			n.setPlatform("win32")
-			when(electron.dialog.showMessageBox(matchers.anything())).thenReturn(Promise.resolve({ response: 1, checkboxChecked: false }))
+			when(electron.dialog.showMessageBox(matchers.anything())).thenReturn(
+				Promise.resolve({
+					response: 1,
+					checkboxChecked: false,
+				}),
+			)
 			await ff.open("exec.exe")
 			verify(electron.shell.openPath(matchers.anything()), { times: 0 })
 		})
@@ -434,17 +426,6 @@ o.spec("DesktopFileFacade", function () {
 	})
 })
 
-function mockWriteStream(response?: http.IncomingMessage): fs.WriteStream {
-	const ws: fs.WriteStream = object()
-	if (response != null) {
-		when(response.pipe(ws)).thenReturn(ws)
-	}
-	const closeCapturer = matchers.captor()
-	when(ws.on("close", closeCapturer.capture())).thenReturn(ws)
-	when(ws.close()).thenDo(() => closeCapturer.value())
-	return ws
-}
-
 function mockReadStream(ws?: fs.WriteStream): fs.ReadStream {
 	const rs: fs.ReadStream = object()
 	if (ws != null) {
@@ -452,4 +433,36 @@ function mockReadStream(ws?: fs.WriteStream): fs.ReadStream {
 	}
 
 	return rs
+}
+
+const urlMatches = matchers.create({
+	name: "urlMatches",
+	matches(matcherArgs: any[], actual: any): boolean {
+		return (actual as URL).toString() === (matcherArgs[0] as URL).toString()
+	},
+})
+
+function mockWriteStream(response?: FetchResult): fs.WriteStream {
+	const ws: fs.WriteStream = object()
+	if (response != null) {
+		// when(response.pipe(ws)).thenReturn(ws)
+	}
+	const closeCapturer = matchers.captor()
+	when(ws.on("close", closeCapturer.capture())).thenReturn(ws)
+	when(ws.close()).thenDo(() => closeCapturer.value())
+	return ws
+}
+
+function mockResponse(
+	statusCode: number,
+	resOpts: {
+		responseBody?: Uint8Array
+		responseHeaders?: Record<string, string>
+	},
+): FetchResult {
+	const { responseBody, responseHeaders } = resOpts
+	return new global.Response(responseBody, {
+		status: statusCode,
+		headers: new Headers(responseHeaders),
+	}) as FetchResult
 }

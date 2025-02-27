@@ -1,12 +1,12 @@
 import o from "@tutao/otest"
-import { CredentialsKeySpec, DesktopKeyStoreFacade, DeviceKeySpec } from "../../../src/desktop/DesktopKeyStoreFacade.js"
-import { DesktopNativeCryptoFacade } from "../../../src/desktop/DesktopNativeCryptoFacade.js"
-import type { SecretStorage } from "../../../src/desktop/sse/SecretStorage.js"
+import { CredentialsKeySpec, DesktopKeyStoreFacade, DeviceKeySpec } from "../../../src/common/desktop/DesktopKeyStoreFacade.js"
+import { DesktopNativeCryptoFacade } from "../../../src/common/desktop/DesktopNativeCryptoFacade.js"
+import type { SecretStorage } from "../../../src/common/desktop/sse/SecretStorage.js"
 import { spyify } from "../nodemocker.js"
 import { keyToBase64, uint8ArrayToKey } from "@tutao/tutanota-crypto"
-import { CancelledError } from "../../../src/api/common/error/CancelledError.js"
+import { CancelledError } from "../../../src/common/api/common/error/CancelledError.js"
 import { assertThrows } from "@tutao/tutanota-test-utils"
-import { DeviceStorageUnavailableError } from "../../../src/api/common/error/DeviceStorageUnavailableError.js"
+import { DeviceStorageUnavailableError } from "../../../src/common/api/common/error/DeviceStorageUnavailableError.js"
 
 function initKeyStoreFacade(secretStorage: SecretStorage, crypto: DesktopNativeCryptoFacade): DesktopKeyStoreFacade {
 	return new DesktopKeyStoreFacade(secretStorage, crypto)
@@ -35,6 +35,7 @@ o.spec("DesktopKeyStoreFacade", function () {
 					},
 
 					async setPassword(service: string, account: string, password: string): Promise<void> {},
+					async deletePassword(service: string, account: string) {},
 				})
 				const keyStoreFacade = initKeyStoreFacade(secretStorageSpy, cryptoFacadeSpy)
 				const actualKey = await keyStoreFacade[opName]()
@@ -50,6 +51,7 @@ o.spec("DesktopKeyStoreFacade", function () {
 					},
 
 					async setPassword(service: string, account: string, password: string): Promise<void> {},
+					async deletePassword(service: string, account: string) {},
 				})
 				cryptoFacadeSpy = {
 					generateDeviceKey() {
@@ -68,6 +70,7 @@ o.spec("DesktopKeyStoreFacade", function () {
 					},
 
 					async setPassword(service: string, account: string, password: string): Promise<void> {},
+					async deletePassword(service: string, account: string) {},
 				})
 				const keyStoreFacade = initKeyStoreFacade(secretStorageSpy, cryptoFacadeSpy)
 				const actualKey = await keyStoreFacade[opName]()
@@ -98,6 +101,7 @@ o.spec("DesktopKeyStoreFacade", function () {
 					},
 
 					async setPassword(service: string, account: string, password: string): Promise<void> {},
+					async deletePassword(service: string, account: string) {},
 				})
 
 				const keyStoreFacade = initKeyStoreFacade(secretStorageSpy, cryptoFacadeSpy)
@@ -112,6 +116,23 @@ o.spec("DesktopKeyStoreFacade", function () {
 		})
 	}
 
+	o("should invalidate the key", async function () {
+		const secretStorageSpy = spyify<SecretStorage>({
+			async getPassword(service: string, account: string): Promise<string | null> {
+				return null
+			},
+
+			async setPassword(service: string, account: string, password: string): Promise<void> {},
+			async deletePassword(service: string, account: string) {},
+		})
+		const keyStoreFacade = initKeyStoreFacade(secretStorageSpy, cryptoFacadeSpy)
+		await keyStoreFacade.invalidateKeychain()
+
+		const deletePasswordCalls = Object.values(toSpec).map(({ serviceName, accountName }) => [serviceName, accountName])
+		o(secretStorageSpy.deletePassword.callCount).equals(deletePasswordCalls.length)
+		o(secretStorageSpy.deletePassword.calls).deepEquals(deletePasswordCalls)
+	})
+
 	o.spec("key storage errors get propagated properly", function () {
 		async function testErrorWrapping({ onget, onset, expectError }) {
 			const secretStorageSpy = spyify<SecretStorage>({
@@ -121,6 +142,7 @@ o.spec("DesktopKeyStoreFacade", function () {
 				async setPassword(service: string, account: string, password: string): Promise<void> {
 					return onset()
 				},
+				async deletePassword(service: string, account: string) {},
 			})
 
 			const keyStoreFacade = initKeyStoreFacade(secretStorageSpy, cryptoFacadeSpy)

@@ -1,12 +1,12 @@
 import o from "@tutao/otest"
-import { createWizardDialog, WizardPageWrapper } from "../../../../src/gui/base/WizardDialog.js"
-import { Dialog } from "../../../../src/gui/base/Dialog.js"
-import { EnterDomainPageAttrs } from "../../../../src/settings/emaildomain/EnterDomainPage.js"
+import { createWizardDialog, WizardPageWrapper } from "../../../../src/common/gui/base/WizardDialog.js"
+import { Dialog, DialogType } from "../../../../src/common/gui/base/Dialog.js"
+import { EnterDomainPageAttrs } from "../../../../src/mail-app/settings/emaildomain/EnterDomainPage.js"
 import stream from "mithril/stream"
-import { CustomerInfoTypeRef, DnsRecordTypeRef } from "../../../../src/api/entities/sys/TypeRefs.js"
-import { DomainDnsStatus } from "../../../../src/settings/DomainDnsStatus.js"
-import { AddDomainData } from "../../../../src/settings/emaildomain/AddDomainWizard.js"
-import { MailAddressTableModel } from "../../../../src/settings/mailaddress/MailAddressTableModel.js"
+import { CustomerInfoTypeRef, DnsRecordTypeRef } from "../../../../src/common/api/entities/sys/TypeRefs.js"
+import { DomainDnsStatus } from "../../../../src/mail-app/settings/DomainDnsStatus.js"
+import { AddDomainData } from "../../../../src/mail-app/settings/emaildomain/AddDomainWizard.js"
+import { MailAddressTableModel } from "../../../../src/common/settings/mailaddress/MailAddressTableModel.js"
 import { object } from "testdouble"
 import { noOp } from "@tutao/tutanota-utils"
 import { createTestEntity } from "../../TestUtils.js"
@@ -39,14 +39,14 @@ const closeAction = () => {
 
 o.spec("WizardDialogN", function () {
 	o("createWizardDialog without pages", function () {
-		const dialogBuilder = createWizardDialog(data, [])
+		const dialogBuilder = createWizardDialog(data, [], null, DialogType.EditLarge)
 		o(dialogBuilder.dialog instanceof Dialog).equals(true)
 		o(dialogBuilder.attrs.currentPage).equals(null)
 		o(dialogBuilder.attrs.pages.length).equals(0)
 	})
 
 	o("createWizardDialog with pages and closeAction", function () {
-		const dialogBuilder = createWizardDialog(data, wizardPages, closeAction)
+		const dialogBuilder = createWizardDialog(data, wizardPages, closeAction, DialogType.EditLarge)
 		o(dialogBuilder.attrs.currentPage).equals(wizardPages[0])
 		o(dialogBuilder.attrs.pages.length).equals(1)
 		const before = counter
@@ -55,7 +55,7 @@ o.spec("WizardDialogN", function () {
 	})
 
 	o("createWizardDialog with pages and without closeAction", function () {
-		const dialogBuilder = createWizardDialog(data, wizardPages)
+		const dialogBuilder = createWizardDialog(data, wizardPages, null, DialogType.EditLarge)
 		o(dialogBuilder.attrs.currentPage).equals(wizardPages[0])
 		o(dialogBuilder.attrs.pages.length).equals(1)
 		const before = counter

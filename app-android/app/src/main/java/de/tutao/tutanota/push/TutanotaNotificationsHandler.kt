@@ -1,14 +1,24 @@
 package de.tutao.tutanota.push
 
+import android.database.SQLException
 import android.util.Log
+import androidx.lifecycle.LifecycleCoroutineScope
 import de.tutao.tutanota.R
-import de.tutao.tutanota.addCommonHeaders
 import de.tutao.tutanota.alarms.AlarmNotificationsManager
-import de.tutao.tutanota.alarms.EncryptedAlarmNotification
-import de.tutao.tutanota.base64ToBase64Url
-import de.tutao.tutanota.data.SseInfo
-import de.tutao.tutanota.toBase64
-import kotlinx.serialization.decodeFromString
+import de.tutao.tutasdk.Sdk
+import de.tutao.tutasdk.serializeMail
+import de.tutao.tutashared.SdkRestClient
+import de.tutao.tutashared.alarms.EncryptedAlarmNotification
+import de.tutao.tutashared.base64ToBase64Url
+import de.tutao.tutashared.data.SseInfo
+import de.tutao.tutashared.ipc.NativeCredentialsFacade
+import de.tutao.tutashared.ipc.wrap
+import de.tutao.tutashared.offline.AndroidSqlCipherFacade
+import de.tutao.tutashared.offline.sqlTagged
+import de.tutao.tutashared.push.SseStorage
+import de.tutao.tutashared.toBase64
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -16,7 +26,6 @@ import okhttp3.Response
 import org.apache.commons.io.IOUtils
 import java.io.FileNotFoundException
 import java.io.IOException
-import java.net.HttpURLConnection
 import java.net.MalformedURLException
 import java.net.URL
 import java.nio.charset.StandardCharsets
@@ -24,10 +33,13 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 class TutanotaNotificationsHandler(
-		private val localNotificationsFacade: LocalNotificationsFacade,
-		private val sseStorage: SseStorage,
-		private val alarmNotificationsManager: AlarmNotificationsManager,
-		private val defaultClient: OkHttpClient
+	private val localNotificationsFacade: LocalNotificationsFacade,
+	private val sseStorage: SseStorage,
+	private val credentialsEncryption: NativeCredentialsFacade,
+	private val alarmNotificationsManager: AlarmNotificationsManager,
+	private val defaultClient: OkHttpClient,
+	private val lifecycleScope: LifecycleCoroutineScope,
+	private val getSqlCipherFacade: () -> AndroidSqlCipherFacade,
 ) {
 
 	private val json = Json { ignoreUnknownKeys = true }
@@ -40,7 +52,7 @@ class TutanotaNotificationsHandler(
 		}
 		val missedNotification = downloadMissedNotification(sseInfo)
 		if (missedNotification != null) {
-			handleNotificationInfos(missedNotification.notificationInfos)
+			handleNotificationInfos(sseInfo, missedNotification.notificationInfos)
 			handleAlarmNotifications(missedNotification.alarmNotifications)
 			sseStorage.setLastProcessedNotificationId(missedNotification.lastProcessedNotificationId)
 			sseStorage.setLastMissedNotificationCheckTime(Date())
@@ -85,8 +97,8 @@ class TutanotaNotificationsHandler(
 				return null
 			} catch (e: ServiceUnavailableException) {
 				Log.d(
-						TAG, "ServiceUnavailable when downloading missed notification, waiting " +
-						e.suspensionSeconds + "s"
+					TAG, "ServiceUnavailable when downloading missed notification, waiting " +
+							e.suspensionSeconds + "s"
 				)
 				try {
 					Thread.sleep(TimeUnit.SECONDS.toMillis(e.suspensionSeconds.toLong()))
@@ -95,8 +107,8 @@ class TutanotaNotificationsHandler(
 				// tries are not decremented and we don't return, we just wait and try again.
 			} catch (e: TooManyRequestsException) {
 				Log.d(
-						TAG, "TooManyRequestsException when downloading missed notification, waiting " +
-						e.retryAfterSeconds + "s"
+					TAG, "TooManyRequestsException when downloading missed notification, waiting " +
+							e.retryAfterSeconds + "s"
 				)
 				try {
 					Thread.sleep(TimeUnit.SECONDS.toMillis(e.retryAfterSeconds.toLong()))
@@ -124,29 +136,30 @@ class TutanotaNotificationsHandler(
 	}
 
 	@Throws(IllegalArgumentException::class, IOException::class, HttpException::class)
-	private fun executeMissedNotificationDownload(sseInfo: SseInfo, userId: String?): MissedNotification {
+	private fun executeMissedNotificationDownload(sseInfo: SseInfo, userId: String?): MissedNotification? {
 		val url = makeAlarmNotificationUrl(sseInfo)
-		val requestBuilder = Request.Builder()
-				.url(url)
-				.method("GET", null)
-				.header("Content-Type", "application/json")
-				.header("userIds", userId?:"")
-		addCommonHeaders(requestBuilder)
-		val lastProcessedNotificationId = sseStorage.getLastProcessedNotificationId()
-		if (lastProcessedNotificationId != null) {
-			requestBuilder.header("lastProcessedNotificationId", lastProcessedNotificationId)
-		}
-
-		var req = requestBuilder.build()
+		val request = Request.Builder()
+			.url(url)
+			.method("GET", null)
+			.header("Content-Type", "application/json")
+			.header("userIds", userId ?: "")
+			.addSysVersionHeaders()
+			.apply {
+				val lastProcessedNotificationId = sseStorage.getLastProcessedNotificationId()
+				if (lastProcessedNotificationId != null) {
+					header("lastProcessedNotificationId", lastProcessedNotificationId)
+				}
+			}
+			.build()
 
 		val response = defaultClient
-				.newBuilder()
-				.connectTimeout(30, TimeUnit.SECONDS)
-				.writeTimeout(20, TimeUnit.SECONDS)
-				.readTimeout(20, TimeUnit.SECONDS)
-				.build()
-				.newCall(req)
-				.execute()
+			.newBuilder()
+			.connectTimeout(30, TimeUnit.SECONDS)
+			.writeTimeout(20, TimeUnit.SECONDS)
+			.readTimeout(20, TimeUnit.SECONDS)
+			.build()
+			.newCall(request)
+			.execute()
 
 		val responseCode = response.code
 		Log.d(TAG, "MissedNotification response code $responseCode")
@@ -160,28 +173,32 @@ class TutanotaNotificationsHandler(
 	}
 
 	@Throws(
-			FileNotFoundException::class,
-			ServerResponseException::class,
-			ClientRequestException::class,
-			ServiceUnavailableException::class,
-			TooManyRequestsException::class
+		FileNotFoundException::class,
+		ServerResponseException::class,
+		ClientRequestException::class,
+		ServiceUnavailableException::class,
+		TooManyRequestsException::class
 	)
 	private fun handleResponseCode(response: Response) {
 		when (response.code) {
 			404 -> {
 				throw FileNotFoundException("Missed notification not found: " + 404)
 			}
+
 			ServiceUnavailableException.CODE -> {
 				val suspensionTime = extractSuspensionTime(response)
 				throw ServiceUnavailableException(suspensionTime)
 			}
+
 			TooManyRequestsException.CODE -> {
 				val suspensionTime = extractSuspensionTime(response)
 				throw TooManyRequestsException(suspensionTime)
 			}
+
 			in 400..499 -> {
 				throw ClientRequestException(response.code)
 			}
+
 			in 500..600 -> {
 				throw ServerResponseException(response.code)
 			}
@@ -190,20 +207,90 @@ class TutanotaNotificationsHandler(
 
 	private fun extractSuspensionTime(response: Response): Int {
 		val retryAfterHeader = response.header("Retry-After")
-				?: response.header("Suspension-Time")
+			?: response.header("Suspension-Time")
 		return retryAfterHeader?.toIntOrNull() ?: 0
 	}
 
 	@Throws(MalformedURLException::class)
 	private fun makeAlarmNotificationUrl(sseInfo: SseInfo): URL {
 		val customId =
-				sseInfo.pushIdentifier.toByteArray(StandardCharsets.UTF_8).toBase64().base64ToBase64Url()
+			sseInfo.pushIdentifier.toByteArray(StandardCharsets.UTF_8).toBase64().base64ToBase64Url()
 		return URL(sseInfo.sseOrigin + "/rest/sys/missednotification/" + customId)
 	}
 
-	private fun handleNotificationInfos(notificationInfos: List<NotificationInfo>) {
-		// TODO: translate
-		localNotificationsFacade.sendEmailNotifications(notificationInfos)
+	private fun handleNotificationInfos(sseInfo: SseInfo, notificationInfos: List<NotificationInfo>) {
+		lifecycleScope.launch(Dispatchers.IO) {
+			val metadatas = notificationInfos.map {
+				try {
+					Pair(it, downloadEmailMetadata(sseInfo, it))
+				} catch (e: Throwable) {
+					Log.w(TAG, e)
+					Pair(it, null)
+				}
+
+			}
+			localNotificationsFacade.sendEmailNotifications(metadatas)
+		}
+	}
+
+	@Throws(de.tutao.tutasdk.ApiCallException::class, Exception::class, IllegalArgumentException::class)
+	private suspend fun downloadEmailMetadata(sseInfo: SseInfo, notificationInfo: NotificationInfo): MailMetadata? {
+
+		val unencryptedCredentials = try {
+			credentialsEncryption.loadByUserId(notificationInfo.userId)
+				?: throw Exception("Missing credentials for user")
+		} catch (e: Throwable) {
+			throw Exception(
+				"Failed to get credentials with userId '${notificationInfo.userId}' to download notification: $e"
+			)
+		}
+
+		if (unencryptedCredentials.encryptedPassphraseKey == null) {
+			return null
+		}
+
+		val sdk = Sdk(sseInfo.sseOrigin, SdkRestClient()).login(unencryptedCredentials.toSdkCredentials())
+
+		val mailId = notificationInfo.mailId?.toSdkIdTupleGenerated()
+			?: throw IllegalArgumentException("Missing mailId for notification ${sseInfo.pushIdentifier}")
+
+		val mail = sdk.mailFacade().loadEmailByIdEncrypted(mailId)
+		if (unencryptedCredentials.databaseKey != null) {
+			Log.d(TAG, "Inserting mail $mailId into offline db")
+			val serializedMail = serializeMail(mail)
+			val sqlCipherFacade = this.getSqlCipherFacade()
+			try {
+				sqlCipherFacade.openDb(
+					unencryptedCredentials.credentialInfo.userId,
+					unencryptedCredentials.databaseKey!!
+				)
+				sqlCipherFacade.run(
+					"INSERT OR IGNORE INTO list_entities VALUES (?, ?, ?, ?, ?)", listOf(
+						"tutanota/Mail".sqlTagged(),
+						mailId.listId.sqlTagged(),
+						mailId.elementId.sqlTagged(),
+						(mail.ownerGroup ?: "").sqlTagged(),
+						serializedMail.wrap().sqlTagged(),
+					)
+				)
+			} catch (e: SQLException) {
+				Log.w(TAG, "Failed to insert mail into offline db: $mailId", e)
+			} finally {
+				sqlCipherFacade.closeDb()
+			}
+		}
+
+		val senderAddress = mail.sender.address
+		val senderName = mail.sender.name
+		val sender = SenderRecipient(senderAddress, senderName, null)
+
+		val recipientMailAddress = mail.firstRecipient ?: throw Exception("Missing firstRecipient from ${mail.id}")
+		val recipientAddress = recipientMailAddress.address
+		val recipientName = recipientMailAddress.name
+
+		val recipient = SenderRecipient(recipientAddress, recipientName, null)
+
+		return MailMetadata(recipient, sender, mail.subject)
 	}
 
 	private fun handleAlarmNotifications(alarmNotifications: List<EncryptedAlarmNotification>) {

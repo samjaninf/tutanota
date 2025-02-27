@@ -1,25 +1,25 @@
 import o from "@tutao/otest"
-import { makeMailBundle } from "../../../../src/mail/export/Bundler.js"
+import { downloadMailBundle } from "../../../../src/mail-app/mail/export/Bundler.js"
 import {
-	createEncryptedMailAddress,
-	createMail,
-	createMailAddress,
+	BodyTypeRef,
 	FileTypeRef,
+	HeaderTypeRef,
 	Mail,
 	MailAddressTypeRef,
-	MailBodyTypeRef,
-	MailHeadersTypeRef,
+	MailDetailsBlobTypeRef,
+	MailDetailsTypeRef,
 	MailTypeRef,
-} from "../../../../src/api/entities/tutanota/TypeRefs.js"
-import { MailState } from "../../../../src/api/common/TutanotaConstants.js"
-import { DataFile } from "../../../../src/api/common/DataFile.js"
-import { HtmlSanitizer } from "../../../../src/misc/HtmlSanitizer.js"
-import { EntityClient } from "../../../../src/api/common/EntityClient.js"
-import { FileController } from "../../../../src/file/FileController.js"
+	RecipientsTypeRef,
+} from "../../../../src/common/api/entities/tutanota/TypeRefs.js"
+import { MailState } from "../../../../src/common/api/common/TutanotaConstants.js"
+import { DataFile } from "../../../../src/common/api/common/DataFile.js"
+import { HtmlSanitizer } from "../../../../src/common/misc/HtmlSanitizer.js"
+import { EntityClient } from "../../../../src/common/api/common/EntityClient.js"
+import { FileController } from "../../../../src/common/file/FileController.js"
 import { matchers, object, verify, when } from "testdouble"
-import { MailFacade } from "../../../../src/api/worker/facades/lazy/MailFacade.js"
+import { MailFacade } from "../../../../src/common/api/worker/facades/lazy/MailFacade.js"
 import { createTestEntity } from "../../TestUtils.js"
-import { CryptoFacade } from "../../../../src/api/worker/crypto/CryptoFacade.js"
+import { CryptoFacade } from "../../../../src/common/api/worker/crypto/CryptoFacade.js"
 
 o.spec("Bundler", function () {
 	let entityClientMock: EntityClient
@@ -38,18 +38,10 @@ o.spec("Bundler", function () {
 	o("make mail bundle non compressed headers", async function () {
 		const mailId: IdTuple = ["maillistid", "maillid"]
 		const subject = "hello"
-		const mailBodyId = "mailbodyid"
-		const body = "This is the body text of the body of the email"
 		const sanitizedBodyText = "this is the sanitized body text of the email"
 		const sender = { address: "sender@mycoolsite.co.uk", name: "the sender" }
-		const to = [{ address: "to@mycoolsite.co.uk", name: "the to" }]
-		const cc = [{ address: "cc@mycoolsite.co.uk", name: "the cc" }]
-		const bcc = [{ address: "bcc@mycoolsite.co.uk", name: "the bcc" }]
-		const replyTo = [{ address: "replyto@mycoolsite.co.uk", name: "the replyto" }]
 		const sentOn = new Date()
 		const receivedOn = new Date()
-		const headers = "this is the headers"
-		const mailHeadersId = "mailheadersid"
 		const attachmentListId: Id = "attachmentListId"
 		const attachmentIds: Id[] = ["attachmentId1", "attachmentId2", "attachmentId3"]
 		const attachments: Array<DataFile> = attachmentIds.map((id) => {
@@ -63,24 +55,53 @@ o.spec("Bundler", function () {
 				mimeType: "test",
 			}
 		})
+
+		const bodyText = "This is the body text of the body of the email"
+		const body = createTestEntity(BodyTypeRef, { text: bodyText })
+		const toValues = {
+			address: "to@mycoolsite.co.uk",
+			name: "the to",
+		}
+		const ccValues = {
+			address: "cc@mycoolsite.co.uk",
+			name: "the cc",
+		}
+		const bccValues = {
+			address: "bcc@mycoolsite.co.uk",
+			name: "the bcc",
+		}
+		const recipients = createTestEntity(RecipientsTypeRef, {
+			toRecipients: [createTestEntity(MailAddressTypeRef, toValues)],
+			ccRecipients: [createTestEntity(MailAddressTypeRef, ccValues)],
+			bccRecipients: [createTestEntity(MailAddressTypeRef, bccValues)],
+		})
+		const headersText = "this is the headers"
+		const replyToValues = {
+			address: "replyto@mycoolsite.co.uk",
+			name: "the replyto",
+		}
+		const mailDetails = createTestEntity(MailDetailsTypeRef, {
+			_id: "detailsId",
+			headers: createTestEntity(HeaderTypeRef, { headers: headersText }),
+			body: body,
+			recipients,
+			sentDate: new Date(sentOn),
+			replyTos: [createTestEntity(MailAddressTypeRef, replyToValues)],
+		})
+		const mailDetailsBlob = createTestEntity(MailDetailsBlobTypeRef, { _id: ["archiveId", mailDetails._id], details: mailDetails })
+
 		const mail = createTestEntity(MailTypeRef, {
 			_id: mailId,
-			body: mailBodyId,
 			subject,
 			sender: createTestEntity(MailAddressTypeRef, sender),
-			toRecipients: to.map(createMailAddress),
-			ccRecipients: cc.map(createMailAddress),
-			bccRecipients: bcc.map(createMailAddress),
-			replyTos: replyTo.map(createEncryptedMailAddress),
 			state: MailState.RECEIVED,
 			unread: false,
-			receivedDate: receivedOn,
-			sentDate: sentOn,
-			headers: mailHeadersId,
+			receivedDate: new Date(receivedOn),
 			attachments: attachmentIds.map((id) => [attachmentListId, id] as IdTuple),
+			mailDetails: mailDetailsBlob._id,
 		})
 
-		when(entityClientMock.load(MailHeadersTypeRef, mailHeadersId)).thenResolve({ headers })
+		when(mailFacadeMock.loadMailDetailsBlob(mail)).thenResolve(mailDetails)
 
 		for (const attachment of attachments) {
 			// the file is only needed to pass to the fileController and is not kept, so we mock it as a string for convenience
@@ -88,9 +109,8 @@ o.spec("Bundler", function () {
 			when(fileControllerMock.getAsDataFile(`file ${attachment.name}` as any)).thenResolve(attachment)
 		}
 
-		when(entityClientMock.load(MailBodyTypeRef, mailBodyId)).thenResolve({ text: body })
 		when(
-			sanitizerMock.sanitizeHTML(body, {
+			sanitizerMock.sanitizeHTML(bodyText, {
 				blockExternalContent: false,
 				allowRelativeLinks: false,
 				usePlaceholderForInlineImages: false,
@@ -102,7 +122,7 @@ o.spec("Bundler", function () {
 			Promise.resolve(attachments),
 		)
 
-		const bundle = await makeMailBundle(mail, mailFacadeMock, entityClientMock, fileControllerMock, sanitizerMock, cryptoMock)
+		const bundle = await downloadMailBundle(mail, mailFacadeMock, entityClientMock, fileControllerMock, sanitizerMock, cryptoMock)
 		verify(cryptoMock.enforceSessionKeyUpdateIfNeeded(mail, attachments.map((a) => `file ${a.name}`) as any))
 
 		o(bundle).deepEquals({
@@ -110,13 +130,13 @@ o.spec("Bundler", function () {
 			subject: subject,
 			sender: sender,
 			body: sanitizedBodyText,
-			to: to,
-			cc: cc,
-			bcc: bcc,
-			replyTo: replyTo,
+			to: [toValues],
+			cc: [ccValues],
+			bcc: [bccValues],
+			replyTo: [replyToValues],
 			isDraft: false,
 			isRead: true,
-			headers: headers,
+			headers: headersText,
 			attachments: attachments,
 			sentOn: sentOn.getTime(),
 			receivedOn: receivedOn.getTime(),
